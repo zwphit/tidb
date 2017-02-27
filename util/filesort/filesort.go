@@ -14,6 +14,7 @@
 package filesort
 
 import (
+	"bufio"
 	"container/heap"
 	"encoding/binary"
 	"io"
@@ -123,25 +124,26 @@ type FileSorter struct {
 
 	rowHeap    *rowHeap
 	fds        []*os.File
+	readers    []*bufio.Reader
 	rowBytes   []byte
-	head       []byte
+	maxRowSize int
 	dcod       []types.Datum
 	keySize    int
 	valSize    int
-	maxRowSize int
+	bufSize    int
 }
 
 // Worker sorts file asynchronously.
 type Worker struct {
-	ctx     *FileSorter
-	busy    bool
-	keySize int
-	valSize int
-	rowSize int
-	bufSize int
-	buf     []*comparableRow
-	head    []byte
-	err     error
+	ctx        *FileSorter
+	busy       bool
+	keySize    int
+	valSize    int
+	bufSize    int
+	rowBytes   []byte
+	maxRowSize int
+	buf        []*comparableRow
+	err        error
 }
 
 // Builder builds a new FileSorter.
@@ -221,12 +223,11 @@ func (b *Builder) Build() (*FileSorter, error) {
 	ws := make([]*Worker, b.nWorkers)
 	for i := range ws {
 		ws[i] = &Worker{
-			keySize: b.keySize,
-			valSize: b.valSize,
-			rowSize: b.keySize + b.valSize + 1,
-			bufSize: b.bufSize / b.nWorkers,
-			buf:     make([]*comparableRow, 0, b.bufSize/b.nWorkers),
-			head:    make([]byte, 8),
+			keySize:  b.keySize,
+			valSize:  b.valSize,
+			bufSize:  b.bufSize / b.nWorkers,
+			rowBytes: make([]byte, 8),
+			buf:      make([]*comparableRow, 0, b.bufSize/b.nWorkers),
 		}
 	}
 
@@ -238,15 +239,13 @@ func (b *Builder) Build() (*FileSorter, error) {
 	fs := &FileSorter{sc: b.sc,
 		workers:  ws,
 		nWorkers: b.nWorkers,
-		cWorker:  0,
 
-		head:    make([]byte, 8),
 		dcod:    make([]types.Datum, 0, b.keySize+b.valSize+1),
 		keySize: b.keySize,
 		valSize: b.valSize,
+		bufSize: b.bufSize,
 
 		tmpDir:  b.tmpDir,
-		files:   make([]string, 0),
 		byDesc:  b.byDesc,
 		rowHeap: rh,
 	}
@@ -305,8 +304,8 @@ func (fs *FileSorter) externalSort() (*comparableRow, error) {
 			if w.err != nil {
 				return nil, errors.Trace(w.err)
 			}
-			if w.rowSize > fs.maxRowSize {
-				fs.maxRowSize = w.rowSize
+			if w.maxRowSize > fs.maxRowSize {
+				fs.maxRowSize = w.maxRowSize
 			}
 		}
 
@@ -380,37 +379,34 @@ func (fs *FileSorter) openAllFiles() error {
 			return errors.Trace(err)
 		}
 		fs.fds = append(fs.fds, fd)
+
+		reader := bufio.NewReaderSize(fd, fs.bufSize*fs.maxRowSize/fs.nFiles)
+		if reader == nil {
+			return errors.Trace(err)
+		}
+		fs.readers = append(fs.readers, reader)
 	}
 	return nil
 }
 
 // Fetch the next row given the source file index.
 func (fs *FileSorter) fetchNextRow(index int) (*comparableRow, error) {
-	var (
-		err error
-		n   int
-	)
-	n, err = fs.fds[index].Read(fs.head)
+	var err error
+	_, err = io.ReadFull(fs.readers[index], fs.rowBytes[:8])
 	if err == io.EOF {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	if n != 8 {
-		return nil, errors.New("incorrect header")
-	}
-	rowSize := int(binary.BigEndian.Uint64(fs.head))
+	rowSize := int(binary.BigEndian.Uint64(fs.rowBytes[:8]))
 
-	n, err = fs.fds[index].Read(fs.rowBytes)
+	_, err = io.ReadFull(fs.readers[index], fs.rowBytes[8:rowSize])
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	if n != rowSize {
-		return nil, errors.New("incorrect row")
-	}
 
-	fs.dcod, err = codec.Decode(fs.rowBytes, fs.keySize+fs.valSize+1)
+	fs.dcod, err = codec.Decode(fs.rowBytes[8:rowSize], fs.keySize+fs.valSize+1)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -536,10 +532,9 @@ func (w *Worker) input(row *comparableRow) error {
 func (w *Worker) flushToFile() {
 	defer w.ctx.wg.Done()
 	var (
-		err        error
-		outputFile *os.File
-		outputByte []byte
-		prevLen    int
+		file   *os.File
+		writer *bufio.Writer
+		err    error
 	)
 
 	sort.Sort(w)
@@ -549,45 +544,43 @@ func (w *Worker) flushToFile() {
 
 	fileName := w.ctx.getUniqueFileName()
 
-	outputFile, err = os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	file, err = os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		w.err = err
 		return
 	}
-	defer outputFile.Close()
+	defer file.Close()
+
+	writer = bufio.NewWriter(file)
+	defer writer.Flush()
 
 	for _, row := range w.buf {
-		prevLen = len(outputByte)
-		outputByte = append(outputByte, w.head...)
-		outputByte, err = codec.EncodeKey(outputByte, row.key...)
+		w.rowBytes, err = codec.EncodeKey(w.rowBytes, row.key...)
 		if err != nil {
 			w.err = err
 			return
 		}
-		outputByte, err = codec.EncodeKey(outputByte, row.val...)
+		w.rowBytes, err = codec.EncodeKey(w.rowBytes, row.val...)
 		if err != nil {
 			w.err = err
 			return
 		}
-		outputByte, err = codec.EncodeKey(outputByte, types.NewIntDatum(row.handle))
+		w.rowBytes, err = codec.EncodeKey(w.rowBytes, types.NewIntDatum(row.handle))
 		if err != nil {
 			w.err = err
 			return
 		}
 
-		if len(outputByte)-prevLen-8 > w.rowSize {
-			w.rowSize = len(outputByte) - prevLen - 8
+		if len(w.rowBytes) > w.maxRowSize {
+			w.maxRowSize = len(w.rowBytes)
 		}
-		binary.BigEndian.PutUint64(w.head, uint64(len(outputByte)-prevLen-8))
-		for i := 0; i < 8; i++ {
-			outputByte[prevLen+i] = w.head[i]
+		binary.BigEndian.PutUint64(w.rowBytes[:8], uint64(len(w.rowBytes)))
+		_, err = writer.Write(w.rowBytes)
+		if err != nil {
+			w.err = err
+			return
 		}
-	}
-
-	_, err = outputFile.Write(outputByte)
-	if err != nil {
-		w.err = err
-		return
+		w.rowBytes = w.rowBytes[:8]
 	}
 
 	w.ctx.appendFileName(fileName)
