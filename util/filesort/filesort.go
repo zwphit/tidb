@@ -226,7 +226,7 @@ func (b *Builder) Build() (*FileSorter, error) {
 			valSize: b.valSize,
 			rowSize: b.keySize + b.valSize + 1,
 			bufSize: b.bufSize / b.nWorkers,
-			buf:     make([]*comparableRow, 0, b.bufSize/b.nWorkers),
+			buf:     make([]*comparableRow, 0),
 			head:    make([]byte, 8),
 		}
 	}
