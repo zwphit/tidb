@@ -146,7 +146,7 @@ func (pc pbConverter) scalarFuncToPBExpr(expr *ScalarFunction) *tipb.Expr {
 	case ast.Case, ast.Coalesce, ast.If, ast.Ifnull, ast.IsNull, ast.Nullif:
 		return pc.builtinFuncToPBExpr(expr)
 	case ast.JsonType, ast.JsonExtract, ast.JsonValid, ast.JsonObject, ast.JsonArray, ast.JsonMerge,
-		ast.JsonSet, ast.JsonInsert, ast.JsonReplace, ast.JsonRemove, ast.JsonContains:
+		ast.JsonSet, ast.JsonInsert, ast.JsonReplace, ast.JsonRemove, ast.JsonContains, ast.JsonUnquote:
 		return pc.jsonFuncToPBExpr(expr)
 	default:
 		return nil

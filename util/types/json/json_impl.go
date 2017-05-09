@@ -129,3 +129,19 @@ func (j *jsonImpl) Extract(pathExpr string) (Json, error) {
 	}
 	return retJson, err
 }
+
+func (j *jsonImpl) Unquote() (s string, err error) {
+	switch x := j.json.(type) {
+	case map[string]interface{}, []interface{}:
+		s = j.DumpToString()
+	case string:
+		s = x
+	case bool:
+		s = fmt.Sprintf("%t", x)
+	case float64:
+		s = strconv.FormatFloat(x, 'f', -1, 64)
+	default: // nil
+		s = "null"
+	}
+	return
+}

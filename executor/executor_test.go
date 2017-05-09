@@ -966,21 +966,26 @@ func (s *testSuite) TestJson(c *C) {
 	tk.MustExec(`insert into test_json (a, b) values ('{"a":[1,"2",{"aa":"bb"},4],"b":true}', '{"a":[1,"2",{"aa":"bb"},4],"b":true}')`)
 	tk.MustExec(`insert into test_json (a, b) values ("null", "null")`)
 	tk.MustExec(`insert into test_json (a, b) values (null, null)`)
+	tk.MustExec(`insert into test_json (a, b) values ('true', 'true')`)
 	tk.MustExec(`insert into test_json (a, b) values ('3', '3')`)
 	tk.MustExec(`insert into test_json (a, b) values ('"string"', '"string"')`)
 
 	var result *testkit.Result
 	result = tk.MustQuery(`select json_extract(a, '$.a[2].aa') from test_json`)
-	result.Check(testkit.Rows("bb", "<nil>", "<nil>", "<nil>", "<nil>"))
+	result.Check(testkit.Rows("bb", "<nil>", "<nil>", "<nil>", "<nil>", "<nil>"))
 
 	result = tk.MustQuery(`select json_extract(b, '$.a[2].aa') from test_json`)
-	result.Check(testkit.Rows("bb", "<nil>", "<nil>", "<nil>", "<nil>"))
+	result.Check(testkit.Rows("bb", "<nil>", "<nil>", "<nil>", "<nil>", "<nil>"))
 
 	result = tk.MustQuery(`select json_extract(a, '$.a[2].aa') from test_json where json_extract(a, '$.a[2].aa') = "bb"`)
 	result.Check(testkit.Rows("bb"))
 
 	result = tk.MustQuery(`select a from test_json where a = 3`)
 	result.Check(testkit.Rows("3"))
+
+	// TODO fix this.
+	// result = tk.MustQuery(`select a from test_json where a = true`)
+	// result.Check(testkit.Rows("true"))
 
 	result = tk.MustQuery(`select a from test_json where a = "string"`)
 	result.Check(testkit.Rows("\"string\""))

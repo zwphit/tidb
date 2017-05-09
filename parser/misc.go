@@ -531,6 +531,7 @@ var tokenMap = map[string]int{
 	"BOOLEAN":                    booleanType,
 	"JSON":                       jsonType,
 	"JSON_EXTRACT":               jsonExtract,
+	"JSON_UNQUOTE":               jsonUnquote,
 	"SECOND_MICROSECOND":         secondMicrosecond,
 	"MINUTE_MICROSECOND":         minuteMicrosecond,
 	"MINUTE_SECOND":              minuteSecond,

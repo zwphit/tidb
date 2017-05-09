@@ -426,6 +426,8 @@ func (v *typeInferrer) handleFuncCallExpr(x *ast.FuncCallExpr) {
 	case ast.JsonType, ast.JsonExtract, ast.JsonObject, ast.JsonArray, ast.JsonMerge,
 		ast.JsonSet, ast.JsonInsert, ast.JsonReplace, ast.JsonRemove:
 		tp = types.NewFieldType(mysql.TypeJson)
+	case ast.JsonUnquote:
+		tp = types.NewFieldType(mysql.TypeVarString)
 	case ast.AnyValue:
 		tp = x.Args[0].GetType()
 	case ast.RowFunc:

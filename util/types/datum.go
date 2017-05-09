@@ -638,26 +638,21 @@ func (d *Datum) compareMysqlSet(sc *variable.StatementContext, set Set) (int, er
 func (d *Datum) compareMysqlJson(sc *variable.StatementContext, target Json) (int, error) {
 	var origin Json
 
-	switch d.k {
+	switch d.Kind() {
 	case KindMysqlJson:
 		origin = d.x.(Json)
-	case KindInt64:
-		f64 := float64(d.GetInt64())
-		origin = CreateJson(f64)
-	case KindUint64:
-		f64 := float64(d.GetUint64())
-		origin = CreateJson(f64)
-	case KindFloat32:
-		f64 := float64(d.GetFloat32())
-		origin = CreateJson(f64)
-	case KindFloat64:
-		f64 := d.GetFloat64()
+	case KindInt64, KindUint64:
+		i64, _ := d.ToInt64(sc)
+		origin = CreateJson(i64)
+	case KindFloat32, KindFloat64, KindMysqlDecimal:
+		f64, _ := d.ToFloat64(sc)
 		origin = CreateJson(f64)
 	case KindString, KindBytes:
 		s := d.GetString()
 		origin = CreateJson(s)
 	default:
-		origin = CreateJson(nil)
+		s, _ := d.ToString()
+		origin = CreateJson(s)
 	}
 	return CompareJson(origin, target)
 }

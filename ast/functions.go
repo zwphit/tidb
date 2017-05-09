@@ -290,6 +290,7 @@ const (
 	JsonReplace  = "json_replace"
 	JsonRemove   = "json_remove"
 	JsonContains = "json_contains"
+	JsonUnquote  = "json_unquote"
 )
 
 // FuncCallExpr is for function expression.

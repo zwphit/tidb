@@ -610,4 +610,5 @@ var funcs = map[string]functionClass{
 
 	// json functions
 	ast.JsonExtract: &jsonExtractFunctionClass{baseFunctionClass{ast.JsonExtract, 2, 2}},
+	ast.JsonUnquote: &jsonUnquoteFunctionClass{baseFunctionClass{ast.JsonUnquote, 1, 1}},
 }

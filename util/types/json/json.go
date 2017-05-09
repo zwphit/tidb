@@ -33,6 +33,8 @@ type Json interface {
 
 	// Extract is used for json_extract function.
 	Extract(pathExpr string) (Json, error)
+	// Unquote is used for json_unquote function.
+	Unquote() (string, error)
 }
 
 // CreateJson will create a json with bson as serde format and nil as data.

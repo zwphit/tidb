@@ -25,6 +25,9 @@ func (e *Evaluator) evalJsonOps(expr *tipb.Expr) (d types.Datum, err error) {
 		jsonDatum, _ := e.Eval(expr.Children[0])
 		jsonPath, _ := e.Eval(expr.Children[1])
 		return expression.JsonExtract(jsonDatum, jsonPath)
+	case tipb.ExprType_JsonUnquote:
+		jsonDatum, _ := e.Eval(expr.Children[0])
+		return expression.JsonUnquote(jsonDatum)
 	default:
 		d.SetNull()
 		return d, nil

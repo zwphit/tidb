@@ -149,7 +149,7 @@ func (e *Evaluator) Eval(expr *tipb.Expr) (types.Datum, error) {
 		return e.evalIsNull(expr)
 	case tipb.ExprType_JsonType, tipb.ExprType_JsonExtract, tipb.ExprType_JsonValid, tipb.ExprType_JsonObject,
 		tipb.ExprType_JsonArray, tipb.ExprType_JsonMerge, tipb.ExprType_JsonSet, tipb.ExprType_JsonInsert,
-		tipb.ExprType_JsonReplace, tipb.ExprType_JsonRemove, tipb.ExprType_JsonContains:
+		tipb.ExprType_JsonReplace, tipb.ExprType_JsonRemove, tipb.ExprType_JsonContains, tipb.ExprType_JsonUnquote:
 		return e.evalJsonOps(expr)
 	}
 	return types.Datum{}, nil

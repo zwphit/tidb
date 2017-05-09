@@ -30,7 +30,7 @@ func argDatumToJson(jsond types.Datum, errfmt string, position int) (jsonObj jso
 	case types.KindMysqlJson:
 		jsonObj = jsond.GetMysqlJson()
 	case types.KindNull:
-		jsonObj = json.CreateJson(nil)
+		jsonObj = nil
 		return
 	default:
 		err = json.ErrInvalidJsonData.Gen(errfmt, position)
@@ -58,19 +58,36 @@ func JsonExtract(jsond, pathd types.Datum) (d types.Datum, err error) {
 		}
 	}
 
-	var jsonObj json.Json
-	var path string
-
-	jsonObj, err = argDatumToJson(jsond, "invalid json data in argument %d", 0)
+	jsonObj, err := argDatumToJson(jsond, "invalid json data in argument %d", 0)
+	check_err()
+	path, err := argDatumToString(pathd, "invalid json path in argument %d", 1)
 	check_err()
 
-	path, err = argDatumToString(pathd, "invalid json path in argument %d", 1)
-	check_err()
+	if jsonObj == nil {
+		return
+	}
 
 	jsonObj, err = jsonObj.Extract(path)
 	check_err()
-
 	d.SetValue(jsonObj)
+	return
+}
+
+// JsonUnquote do really json_unquote(jsond) work.
+func JsonUnquote(jsond types.Datum) (d types.Datum, err error) {
+	check_err := func() {
+		if err != nil {
+			return
+		}
+	}
+	jsonObj, err := argDatumToJson(jsond, "invalid json data in argument %d", 0)
+	check_err()
+	if jsonObj == nil {
+		return
+	}
+	unquoted, err := jsonObj.Unquote()
+	check_err()
+	d.SetValue(unquoted)
 	return
 }
 
@@ -90,6 +107,7 @@ var jsonFunctionNameToPB = map[string]tipb.ExprType{
 	ast.JsonReplace:  tipb.ExprType_JsonReplace,
 	ast.JsonRemove:   tipb.ExprType_JsonRemove,
 	ast.JsonContains: tipb.ExprType_JsonContains,
+	ast.JsonUnquote:  tipb.ExprType_JsonUnquote,
 }
 
 type jsonExtractFunctionClass struct {
@@ -110,4 +128,24 @@ func (b *builtinJsonExtractSig) eval(row []types.Datum) (d types.Datum, err erro
 		return types.Datum{}, errors.Trace(err)
 	}
 	return JsonExtract(args[0], args[1])
+}
+
+type jsonUnquoteFunctionClass struct {
+	baseFunctionClass
+}
+
+func (c *jsonUnquoteFunctionClass) getFunction(args []Expression, ctx context.Context) (builtinFunc, error) {
+	return &builtinJsonUnquoteSig{newBaseBuiltinFunc(args, ctx)}, errors.Trace(c.verifyArgs(args))
+}
+
+type builtinJsonUnquoteSig struct {
+	baseBuiltinFunc
+}
+
+func (b *builtinJsonUnquoteSig) eval(row []types.Datum) (d types.Datum, err error) {
+	args, err := b.evalArgs(row)
+	if err != nil {
+		return types.Datum{}, errors.Trace(err)
+	}
+	return JsonUnquote(args[0])
 }
