@@ -84,18 +84,6 @@ func keysInMap(m map[string]interface{}) []string {
 	return keys
 }
 
-func serialize(in interface{}) (out []byte, err error) {
-	var typeCode byte
-	if typeCode, err = jsonTypeCode(in); err != nil {
-		return
-	}
-	var bytesBuffer = bytes.NewBuffer(nil)
-	bytesBuffer.WriteByte(typeCode)
-	push(bytesBuffer, in)
-	out = bytesBuffer.Bytes()
-	return
-}
-
 func push(bytesBuffer *bytes.Buffer, in interface{}) (err error) {
 	switch x := in.(type) {
 	case nil:
@@ -176,6 +164,9 @@ func pushArray(buffer *bytes.Buffer, array []interface{}) (err error) {
 			return
 		}
 	}
+
+	countAndSize[0] = uint32(len(array))
+	countAndSize[1] = uint32(countAndSizeLen + valueEntrysLen + values.Len())
 	for _, v := range countAndSize {
 		binary.Write(buffer, binary.LittleEndian, v)
 	}
@@ -205,10 +196,6 @@ func pushValueEntry(value interface{}, valueEntrys *bytes.Buffer, values *bytes.
 		err = push(values, value)
 	}
 	return
-}
-
-func deserialize(data []byte) (out interface{}, err error) {
-	return pop(data[0], data[1:])
 }
 
 func pop(typeCode byte, data []byte) (out interface{}, err error) {
@@ -272,6 +259,7 @@ func popObject(data []byte) (m map[string]interface{}, err error) {
 	var countAndSize = make([]uint32, 2)
 	binary.Read(reader, binary.LittleEndian, &countAndSize[0])
 	binary.Read(reader, binary.LittleEndian, &countAndSize[1])
+	m = make(map[string]interface{}, countAndSize[0])
 
 	var keyOffsets = make([]uint32, countAndSize[0])
 	var keyLengths = make([]uint16, countAndSize[0])
@@ -300,9 +288,12 @@ func popObject(data []byte) (m map[string]interface{}, err error) {
 			var inline = valueOffsets[i]
 			var hdr = reflect.SliceHeader{Data: uintptr(unsafe.Pointer(&inline)), Len: 4, Cap: 4}
 			var buf = *(*[]byte)(unsafe.Pointer(&hdr))
-			value, _ = pop(valueTypes[i], buf)
+			value, err = pop(valueTypes[i], buf)
 		} else {
-			value, _ = pop(valueTypes[i], data[valueOffsets[i]:])
+			value, err = pop(valueTypes[i], data[valueOffsets[i]:])
+		}
+		if err != nil {
+			return
 		}
 		m[key] = value
 	}
@@ -315,6 +306,7 @@ func popArray(data []byte) (a []interface{}, err error) {
 	var countAndSize = make([]uint32, 2)
 	binary.Read(reader, binary.LittleEndian, &countAndSize[0])
 	binary.Read(reader, binary.LittleEndian, &countAndSize[1])
+	a = make([]interface{}, countAndSize[0])
 
 	var valueTypes = make([]byte, countAndSize[0])
 	var valueOffsets = make([]uint32, countAndSize[0])
@@ -330,11 +322,97 @@ func popArray(data []byte) (a []interface{}, err error) {
 			var inline = valueOffsets[i]
 			var hdr = reflect.SliceHeader{Data: uintptr(unsafe.Pointer(&inline)), Len: 4, Cap: 4}
 			var buf = *(*[]byte)(unsafe.Pointer(&hdr))
-			value, _ = pop(valueTypes[i], buf)
+			value, err = pop(valueTypes[i], buf)
 		} else {
-			value, _ = pop(valueTypes[i], data[valueOffsets[i]:])
+			value, err = pop(valueTypes[i], data[valueOffsets[i]:])
+		}
+		if err != nil {
+			return
 		}
 		a[i] = value
 	}
 	return
+}
+
+/*
+	The binary jSON format from MySQL 5.7 is as follows:
+
+	JSON doc ::= type value
+	type ::=
+		0x01 |       // large JSON object
+		0x03 |       // large JSON array
+		0x04 |       // literal (true/false/null)
+		0x05 |       // int16
+		0x06 |       // uint16
+		0x07 |       // int32
+		0x08 |       // uint32
+		0x09 |       // int64
+		0x0a |       // uint64
+		0x0b |       // double
+		0x0c |       // utf8mb4 string
+
+	value ::=
+		object  |
+		array   |
+		literal |
+		number  |
+		string  |
+
+	object ::= element-count size key-entry* value-entry* key* value*
+
+	array ::= element-count size value-entry* value*
+
+	// number of members in object or number of elements in array
+	element-count ::= uint32
+
+	// number of bytes in the binary representation of the object or array
+	size ::= uint32
+
+	key-entry ::= key-offset key-length
+
+	key-offset ::= uint32
+
+	key-length ::= uint16    // key length must be less than 64KB
+
+	value-entry ::= type offset-or-inlined-value
+
+	// This field holds either the offset to where the value is stored,
+	// or the value itself if it is small enough to be inlined (that is,
+	// if it is a JSON literal or a small enough [u]int).
+	offset-or-inlined-value ::= uint32
+
+	key ::= utf8mb4-data
+
+	literal ::=
+		0x00 |   // JSON null literal
+		0x01 |   // JSON true literal
+		0x02 |   // JSON false literal
+
+	number ::=  ....  // little-endian format for [u]int(16|32|64), whereas
+                      // double is stored in a platform-independent, eight-byte
+                      // format using float8store()
+
+	string ::= data-length utf8mb4-data
+
+	data-length ::= uint8*	// If the high bit of a byte is 1, the length
+                            // field is continued in the next byte,
+							// otherwise it is the last byte of the length
+							// field. So we need 1 byte to represent
+							// lengths up to 127, 2 bytes to represent
+							// lengths up to 16383, and so on...
+*/
+func serialize(in interface{}) (out []byte, err error) {
+	var typeCode byte
+	if typeCode, err = jsonTypeCode(in); err != nil {
+		return
+	}
+	var bytesBuffer = bytes.NewBuffer(nil)
+	bytesBuffer.WriteByte(typeCode)
+	push(bytesBuffer, in)
+	out = bytesBuffer.Bytes()
+	return
+}
+
+func deserialize(data []byte) (out interface{}, err error) {
+	return pop(data[0], data[1:])
 }

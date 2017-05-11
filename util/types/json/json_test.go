@@ -47,7 +47,7 @@ func (s *testJSONSuite) TestValidatePathExpr(c *C) {
 
 func (s *testJSONSuite) TestJSONSerde(c *C) {
 	var j1 interface{}
-	var jstr1 = []byte(`{"a": 1, "b": true, "c": {"aa": null, "bb": [1, 2, 3]}`)
+	var jstr1 = []byte(`{"a": [1, "2", {"aa": "bb"}, 4.0], "b": true}`)
 	json.Unmarshal(jstr1, &j1)
 
 	var j2 interface{}
@@ -74,6 +74,9 @@ func (s *testJSONSuite) TestJSONSerde(c *C) {
 		c.Assert(err, IsNil)
 		t, err := deserialize(data)
 		c.Assert(err, IsNil)
-		c.Assert(t, Equals, s.Out)
+
+		v1, _ := json.Marshal(t)
+		v2, _ := json.Marshal(s.Out)
+		c.Assert(string(v1), Equals, string(v2))
 	}
 }
