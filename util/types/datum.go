@@ -25,7 +25,7 @@ import (
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/util/charset"
 	"github.com/pingcap/tidb/util/hack"
-	. "github.com/pingcap/tidb/util/types/json"
+	"github.com/pingcap/tidb/util/types/json"
 )
 
 // Kind constants.
@@ -49,7 +49,7 @@ const (
 	KindMinNotNull    byte = 16
 	KindMaxValue      byte = 17
 	KindRaw           byte = 18
-	KindMysqlJson     byte = 19
+	KindMysqlJSON     byte = 19
 )
 
 // Datum is a data box holds different kind of data.
@@ -283,14 +283,14 @@ func (d *Datum) SetMysqlSet(b Set) {
 	d.b = hack.Slice(b.Name)
 }
 
-// GetMysqlJson gets Json value
-func (d *Datum) GetMysqlJson() Json {
-	return d.x.(Json)
+// GetMysqlJSON gets json.JSON value
+func (d *Datum) GetMysqlJSON() json.JSON {
+	return d.x.(json.JSON)
 }
 
-// SetMysqlJson sets Json value
-func (d *Datum) SetMysqlJson(b Json) {
-	d.k = KindMysqlJson
+// SetMysqlJSON sets json.JSON value
+func (d *Datum) SetMysqlJSON(b json.JSON) {
+	d.k = KindMysqlJSON
 	d.x = b
 }
 
@@ -343,8 +343,8 @@ func (d *Datum) GetValue() interface{} {
 		return d.GetMysqlHex()
 	case KindMysqlSet:
 		return d.GetMysqlSet()
-	case KindMysqlJson:
-		return d.GetMysqlJson()
+	case KindMysqlJSON:
+		return d.GetMysqlJSON()
 	case KindMysqlTime:
 		return d.GetMysqlTime()
 	default:
@@ -389,8 +389,8 @@ func (d *Datum) SetValue(val interface{}) {
 		d.SetMysqlHex(x)
 	case Set:
 		d.SetMysqlSet(x)
-	case Json:
-		d.SetMysqlJson(x)
+	case json.JSON:
+		d.SetMysqlJSON(x)
 	case Time:
 		d.SetMysqlTime(x)
 	case []Datum:
@@ -406,7 +406,7 @@ func (d *Datum) SetValue(val interface{}) {
 // CompareDatum compares datum to another datum.
 // TODO: return error properly.
 func (d *Datum) CompareDatum(sc *variable.StatementContext, ad Datum) (int, error) {
-	if d.k == KindMysqlJson && ad.k != KindMysqlJson {
+	if d.k == KindMysqlJSON && ad.k != KindMysqlJSON {
 		cmp, err := ad.CompareDatum(sc, *d)
 		return cmp * -1, err
 	}
@@ -450,8 +450,8 @@ func (d *Datum) CompareDatum(sc *variable.StatementContext, ad Datum) (int, erro
 		return d.compareMysqlHex(sc, ad.GetMysqlHex())
 	case KindMysqlSet:
 		return d.compareMysqlSet(sc, ad.GetMysqlSet())
-	case KindMysqlJson:
-		return d.compareMysqlJson(sc, ad.GetMysqlJson())
+	case KindMysqlJSON:
+		return d.compareMysqlJSON(sc, ad.GetMysqlJSON())
 	case KindMysqlTime:
 		return d.compareMysqlTime(sc, ad.GetMysqlTime())
 	case KindRow:
@@ -635,26 +635,26 @@ func (d *Datum) compareMysqlSet(sc *variable.StatementContext, set Set) (int, er
 	}
 }
 
-func (d *Datum) compareMysqlJson(sc *variable.StatementContext, target Json) (int, error) {
-	var origin Json
+func (d *Datum) compareMysqlJSON(sc *variable.StatementContext, target json.JSON) (int, error) {
+	var origin json.JSON
 
 	switch d.Kind() {
-	case KindMysqlJson:
-		origin = d.x.(Json)
+	case KindMysqlJSON:
+		origin = d.x.(json.JSON)
 	case KindInt64, KindUint64:
 		i64, _ := d.ToInt64(sc)
-		origin = CreateJson(i64)
+		origin = json.CreateJSON(i64)
 	case KindFloat32, KindFloat64, KindMysqlDecimal:
 		f64, _ := d.ToFloat64(sc)
-		origin = CreateJson(f64)
+		origin = json.CreateJSON(f64)
 	case KindString, KindBytes:
 		s := d.GetString()
-		origin = CreateJson(s)
+		origin = json.CreateJSON(s)
 	default:
 		s, _ := d.ToString()
-		origin = CreateJson(s)
+		origin = json.CreateJSON(s)
 	}
-	return CompareJson(origin, target)
+	return json.CompareJSON(origin, target)
 }
 
 func (d *Datum) compareMysqlTime(sc *variable.StatementContext, time Time) (int, error) {
@@ -728,8 +728,8 @@ func (d *Datum) ConvertTo(sc *variable.StatementContext, target *FieldType) (Dat
 		return d.convertToMysqlEnum(sc, target)
 	case mysql.TypeSet:
 		return d.convertToMysqlSet(sc, target)
-	case mysql.TypeJson:
-		return d.convertToMysqlJson(sc, target)
+	case mysql.TypeJSON:
+		return d.convertToMysqlJSON(sc, target)
 	case mysql.TypeNull:
 		return Datum{}, nil
 	default:
@@ -1171,12 +1171,12 @@ func (d *Datum) convertToMysqlSet(sc *variable.StatementContext, target *FieldTy
 	return ret, nil
 }
 
-func (d *Datum) convertToMysqlJson(sc *variable.StatementContext, target *FieldType) (Datum, error) {
+func (d *Datum) convertToMysqlJSON(sc *variable.StatementContext, target *FieldType) (Datum, error) {
 	var (
 		s   string
-		j   Json = CreateJson(nil)
+		j   json.JSON = json.CreateJSON(nil)
 		ret Datum
-		err error = nil
+		err error
 	)
 	switch d.k {
 	case KindString, KindBytes:

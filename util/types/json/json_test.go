@@ -13,13 +13,22 @@
 
 package json
 
-import . "github.com/pingcap/check"
+import (
+	"encoding/json"
+	"testing"
 
-var _ = Suite(&testJsonSuite{})
+	. "github.com/pingcap/check"
+)
 
-type testJsonSuite struct{}
+var _ = Suite(&testJSONSuite{})
 
-func (s *testJsonSuite) TestJsonPathExprLegRe(c *C) {
+type testJSONSuite struct{}
+
+func TestT(t *testing.T) {
+	TestingT(t)
+}
+
+func (s *testJSONSuite) TestJSONPathExprLegRe(c *C) {
 	var pathExpr = "$.key1[3][*].*.key3"
 	matches := jsonPathExprLegRe.FindAllString(pathExpr, -1)
 	c.Assert(len(matches), Equals, 5)
@@ -30,61 +39,41 @@ func (s *testJsonSuite) TestJsonPathExprLegRe(c *C) {
 	c.Assert(matches[4], Equals, ".key3")
 }
 
-func (s *testJsonSuite) TestValidatePathExpr(c *C) {
+func (s *testJSONSuite) TestValidatePathExpr(c *C) {
 	var pathExpr = "$ .   key1[3]\t[*].*.key3"
-	_, err := validateJsonPathExpr(pathExpr)
+	_, err := validateJSONPathExpr(pathExpr)
 	c.Assert(err, IsNil)
 }
 
-func (s *testJsonSuite) TestJson(c *C) {
-	var (
-		jstrList []string
-		jList    []Json
-		bytes    []byte
-		err      error
-		cmp      int
-	)
-	jstrList = []string{
-		`[3, "4", 6.8, true, null, {"a": ["22", false], "b": "x"}]`,
-		`[  3  , "4", 6.8, true, null, {"b": "x", "a": ["22", false]}]`,
-		// TODO fix json decoder out of sync.
-		// `[  3  , "4", 6.8, true, null, {"b" : "x", "a": ["22", false]}]`,
+func (s *testJSONSuite) TestJSONSerde(c *C) {
+	var j1 interface{}
+	var jstr1 = []byte(`{"a": 1, "b": true, "c": {"aa": null, "bb": [1, 2, 3]}`)
+	json.Unmarshal(jstr1, &j1)
+
+	var j2 interface{}
+	var jstr2 = []byte(`[{"a": 1, "b": true}, 3, 3.5, "hello, world", nil, true]`)
+	json.Unmarshal(jstr2, &j2)
+
+	var testcses = []struct {
+		In  interface{}
+		Out interface{}
+	}{
+		{In: nil, Out: nil},
+		{In: true, Out: true},
+		{In: false, Out: false},
+		{In: int16(30), Out: int16(30)},
+		{In: uint32(3), Out: uint32(3)},
+		{In: float64(0.5), Out: float64(0.5)},
+		{In: "abcdefg", Out: "abcdefg"},
+		{In: j1, Out: j1},
+		{In: j2, Out: j2},
 	}
-	jList = make([]Json, len(jstrList))
 
-	for i, jstr := range jstrList {
-		jList[i] = CreateJson(nil)
-
-		err = jList[i].ParseFromString(jstr)
+	for _, s := range testcses {
+		data, err := serialize(s.In)
 		c.Assert(err, IsNil)
-
-		bytes, err = jList[i].Serialize()
+		t, err := deserialize(data)
 		c.Assert(err, IsNil)
-
-		j := CreateJson(nil)
-		err = j.Deserialize(bytes)
-		c.Assert(err, IsNil)
-	}
-	cmp, err = CompareJson(jList[0], jList[1])
-	c.Assert(err, IsNil)
-	c.Assert(cmp, Equals, 0)
-}
-
-func (s *testJsonSuite) TestCreateJson(c *C) {
-	jstrList := map[string]interface{}{
-		`3`:    3,
-		`"3"`:  "3",
-		`null`: nil,
-		`2.5`:  2.5,
-	}
-	for jstr, primitive := range jstrList {
-		j1 := CreateJson(nil)
-		j1.ParseFromString(jstr)
-
-		j2 := CreateJson(primitive)
-		cmp, err := CompareJson(j1, j2)
-
-		c.Assert(err, IsNil)
-		c.Assert(cmp, Equals, 0)
+		c.Assert(t, Equals, s.Out)
 	}
 }
