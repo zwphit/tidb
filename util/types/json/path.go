@@ -13,11 +13,7 @@
 
 package json
 
-import (
-	"regexp"
-
-	"github.com/juju/errors"
-)
+import "regexp"
 
 /*
 	From MySQL 5.7, JSON path expression grammar:
@@ -42,18 +38,17 @@ import (
 		select json_extract('{"a": "b", "c": [1, "2"]}', '$.c[*]') -> [1, "2"]
 		select json_extract('{"a": "b", "c": [1, "2"]}', '$.*') -> ["b", [1, "2"]]
 	TODO:
-		1) figure out double asterisk is for what;
+		1) add double asterisk support;
 */
 var jsonPathExprLegRe = regexp.MustCompile(`(\.([a-zA-Z_][a-zA-Z0-9_]*|\*)|(\[([0-9]+|\*)\]))`)
 
-func validateJsonPathExpr(pathExpr string) ([][]int, error) {
-	var err = errors.New("invalid path expr")
-
+func validateJSONPathExpr(pathExpr string) (indices [][]int, err error) {
 	if pathExpr[0] != '$' {
-		return nil, err
+		err = ErrInvalidJSONPath.GenByArgs(pathExpr)
+		return
 	}
 
-	indices := jsonPathExprLegRe.FindAllStringIndex(pathExpr, -1)
+	indices = jsonPathExprLegRe.FindAllStringIndex(pathExpr, -1)
 	lastEnd := -1
 	currentStart := -1
 	for _, indice := range indices {
@@ -62,7 +57,8 @@ func validateJsonPathExpr(pathExpr string) ([][]int, error) {
 			for idx := lastEnd; idx < currentStart; idx++ {
 				c := pathExpr[idx]
 				if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
-					return nil, err
+					err = ErrInvalidJSONPath.GenByArgs(pathExpr)
+					return
 				}
 			}
 		}

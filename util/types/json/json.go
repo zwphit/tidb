@@ -20,8 +20,8 @@ import (
 	"github.com/pingcap/tidb/terror"
 )
 
-// Json is for MySQL Json type.
-type Json interface {
+// JSON is for MySQL JSON type.
+type JSON interface {
 	// ParseFromString parses a json from string.
 	ParseFromString(s string) error
 	// DumpToString dumps itself to string.
@@ -32,29 +32,31 @@ type Json interface {
 	Deserialize(bytes []byte)
 
 	// Extract is used for json_extract function.
-	Extract(pathExpr string) (Json, error)
+	Extract(pathExpr string) (JSON, error)
 	// Unquote is used for json_unquote function.
 	Unquote() (string, error)
 }
 
-// CreateJson will create a json with bson as serde format and nil as data.
-func CreateJson(j interface{}) Json {
+// CreateJSON will create a json with bson as serde format and nil as data.
+func CreateJSON(j interface{}) JSON {
 	return &jsonImpl{
 		json: j,
 	}
 }
 
-// CompareJson compares two json object.
-func CompareJson(j1 Json, j2 Json) (int, error) {
+// CompareJSON compares two json object.
+func CompareJSON(j1 JSON, j2 JSON) (int, error) {
 	s1 := j1.Serialize()
 	s2 := j2.Serialize()
 	return bytes.Compare(s1, s2), nil
 }
 
 var (
-	// Error codes and messages about json.
+	// ErrInvalidJSONText means invalid JSON text.
 	ErrInvalidJSONText = terror.ClassJSON.New(mysql.ErrInvalidJSONText, mysql.MySQLErrName[mysql.ErrInvalidJSONText])
+	// ErrInvalidJSONPath means invalid JSON path.
 	ErrInvalidJSONPath = terror.ClassJSON.New(mysql.ErrInvalidJSONPath, mysql.MySQLErrName[mysql.ErrInvalidJSONPath])
+	// ErrInvalidJSONData means invalid JSON data.
 	ErrInvalidJSONData = terror.ClassJSON.New(mysql.ErrInvalidJSONData, mysql.MySQLErrName[mysql.ErrInvalidJSONData])
 )
 

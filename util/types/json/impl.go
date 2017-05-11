@@ -22,7 +22,7 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-var _ Json = &jsonImpl{}
+var _ JSON = &jsonImpl{}
 
 type jsonImpl struct {
 	json interface{}
@@ -45,22 +45,23 @@ func (j *jsonImpl) DumpToString() string {
 }
 
 func (j *jsonImpl) Serialize() []byte {
-	return serialize(j.json)
+	ret, _ := serialize(j.json)
+	return ret
 }
 
 func (j *jsonImpl) Deserialize(bytes []byte) {
-	deserialize(bytes, &j.json)
+	j.json, _ = deserialize(bytes)
 }
 
-func (j *jsonImpl) Extract(pathExpr string) (Json, error) {
+func (j *jsonImpl) Extract(pathExpr string) (JSON, error) {
 	var (
-		err     error = nil
+		err     error
 		indices [][]int
 		current interface{} = j.json
-		found   bool        = false
+		found               = false
 	)
 
-	if indices, err = validateJsonPathExpr(pathExpr); err != nil {
+	if indices, err = validateJSONPathExpr(pathExpr); err != nil {
 		return nil, errors.Trace(err)
 	}
 
@@ -95,10 +96,10 @@ func (j *jsonImpl) Extract(pathExpr string) (Json, error) {
 		current = nil
 		break
 	}
-	retJson := &jsonImpl{
+	retJSON := &jsonImpl{
 		json: current,
 	}
-	return retJson, err
+	return retJSON, err
 }
 
 func (j *jsonImpl) Unquote() (s string, err error) {
