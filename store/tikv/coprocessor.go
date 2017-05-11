@@ -67,10 +67,10 @@ func supportExpr(exprType tipb.ExprType) bool {
 		return true
 	case kv.ReqSubTypeDesc:
 		return true
-	case tipb.ExprType_JsonType, tipb.ExprType_JsonExtract, tipb.ExprType_JsonValid, tipb.ExprType_JsonObject,
-		tipb.ExprType_JsonArray, tipb.ExprType_JsonMerge, tipb.ExprType_JsonSet, tipb.ExprType_JsonInsert,
-		tipb.ExprType_JsonReplace, tipb.ExprType_JsonRemove, tipb.ExprType_JsonContains, tipb.ExprType_JsonUnquote:
-		return true
+		//	case tipb.ExprType_JSONType, tipb.ExprType_JSONExtract, tipb.ExprType_JSONValid, tipb.ExprType_JSONObject,
+		//		tipb.ExprType_JSONArray, tipb.ExprType_JSONMerge, tipb.ExprType_JSONSet, tipb.ExprType_JSONInsert,
+		//		tipb.ExprType_JSONReplace, tipb.ExprType_JSONRemove, tipb.ExprType_JSONContains, tipb.ExprType_JSONUnquote:
+		//		return true
 	default:
 		return false
 	}

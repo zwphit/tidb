@@ -609,6 +609,6 @@ var funcs = map[string]functionClass{
 	ast.ValidatePasswordStrength: &validatePasswordStrengthFunctionClass{baseFunctionClass{ast.ValidatePasswordStrength, 1, 1}},
 
 	// json functions
-	ast.JsonExtract: &jsonExtractFunctionClass{baseFunctionClass{ast.JsonExtract, 2, 2}},
-	ast.JsonUnquote: &jsonUnquoteFunctionClass{baseFunctionClass{ast.JsonUnquote, 1, 1}},
+	ast.JSONExtract: &jsonExtractFunctionClass{baseFunctionClass{ast.JSONExtract, 2, 2}},
+	ast.JSONUnquote: &jsonUnquoteFunctionClass{baseFunctionClass{ast.JSONUnquote, 1, 1}},
 }

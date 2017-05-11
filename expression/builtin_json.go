@@ -15,25 +15,25 @@ package expression
 
 import (
 	"github.com/juju/errors"
-	"github.com/pingcap/tidb/ast"
+	//"github.com/pingcap/tidb/ast"
 	"github.com/pingcap/tidb/context"
 	"github.com/pingcap/tidb/util/types"
 	"github.com/pingcap/tidb/util/types/json"
 	"github.com/pingcap/tipb/go-tipb"
 )
 
-func argDatumToJson(jsond types.Datum, errfmt string, position int) (jsonObj json.Json, err error) {
+func argDatumToJSON(jsond types.Datum, errfmt string, position int) (jsonObj json.JSON, err error) {
 	switch kind := jsond.Kind(); kind {
 	case types.KindString, types.KindBytes:
-		jsonObj = json.CreateJson(nil)
+		jsonObj = json.CreateJSON(nil)
 		jsonObj.ParseFromString(jsond.GetString())
-	case types.KindMysqlJson:
-		jsonObj = jsond.GetMysqlJson()
+	case types.KindMysqlJSON:
+		jsonObj = jsond.GetMysqlJSON()
 	case types.KindNull:
 		jsonObj = nil
 		return
 	default:
-		err = json.ErrInvalidJsonData.Gen(errfmt, position)
+		err = json.ErrInvalidJSONData.Gen(errfmt, position)
 		return
 	}
 	return
@@ -44,21 +44,21 @@ func argDatumToString(pathd types.Datum, errfmt string, position int) (path stri
 	case types.KindString, types.KindBytes:
 		path = pathd.GetString()
 	default:
-		err = json.ErrInvalidJsonPath.Gen(errfmt, position)
+		err = json.ErrInvalidJSONPath.Gen(errfmt, position)
 		return
 	}
 	return
 }
 
-// JsonExtract do really json_extract(jsond, pathd) work.
-func JsonExtract(jsond, pathd types.Datum) (d types.Datum, err error) {
+// JSONExtract do really json_extract(jsond, pathd) work.
+func JSONExtract(jsond, pathd types.Datum) (d types.Datum, err error) {
 	check_err := func() {
 		if err != nil {
 			return
 		}
 	}
 
-	jsonObj, err := argDatumToJson(jsond, "invalid json data in argument %d", 0)
+	jsonObj, err := argDatumToJSON(jsond, "invalid json data in argument %d", 0)
 	check_err()
 	path, err := argDatumToString(pathd, "invalid json path in argument %d", 1)
 	check_err()
@@ -73,14 +73,14 @@ func JsonExtract(jsond, pathd types.Datum) (d types.Datum, err error) {
 	return
 }
 
-// JsonUnquote do really json_unquote(jsond) work.
-func JsonUnquote(jsond types.Datum) (d types.Datum, err error) {
+// JSONUnquote do really json_unquote(jsond) work.
+func JSONUnquote(jsond types.Datum) (d types.Datum, err error) {
 	check_err := func() {
 		if err != nil {
 			return
 		}
 	}
-	jsonObj, err := argDatumToJson(jsond, "invalid json data in argument %d", 0)
+	jsonObj, err := argDatumToJSON(jsond, "invalid json data in argument %d", 0)
 	check_err()
 	if jsonObj == nil {
 		return
@@ -96,18 +96,18 @@ var (
 )
 
 var jsonFunctionNameToPB = map[string]tipb.ExprType{
-	ast.JsonType:     tipb.ExprType_JsonType,
-	ast.JsonExtract:  tipb.ExprType_JsonExtract,
-	ast.JsonValid:    tipb.ExprType_JsonValid,
-	ast.JsonObject:   tipb.ExprType_JsonObject,
-	ast.JsonArray:    tipb.ExprType_JsonArray,
-	ast.JsonMerge:    tipb.ExprType_JsonMerge,
-	ast.JsonSet:      tipb.ExprType_JsonSet,
-	ast.JsonInsert:   tipb.ExprType_JsonInsert,
-	ast.JsonReplace:  tipb.ExprType_JsonReplace,
-	ast.JsonRemove:   tipb.ExprType_JsonRemove,
-	ast.JsonContains: tipb.ExprType_JsonContains,
-	ast.JsonUnquote:  tipb.ExprType_JsonUnquote,
+//ast.JSONType:     tipb.ExprType_JSONType,
+//ast.JSONExtract:  tipb.ExprType_JSONExtract,
+//ast.JSONValid:    tipb.ExprType_JSONValid,
+//ast.JSONObject:   tipb.ExprType_JSONObject,
+//ast.JSONArray:    tipb.ExprType_JSONArray,
+//ast.JSONMerge:    tipb.ExprType_JSONMerge,
+//ast.JSONSet:      tipb.ExprType_JSONSet,
+//ast.JSONInsert:   tipb.ExprType_JSONInsert,
+//ast.JSONReplace:  tipb.ExprType_JSONReplace,
+//ast.JSONRemove:   tipb.ExprType_JSONRemove,
+//ast.JSONContains: tipb.ExprType_JSONContains,
+//ast.JSONUnquote:  tipb.ExprType_JSONUnquote,
 }
 
 type jsonExtractFunctionClass struct {
@@ -115,19 +115,19 @@ type jsonExtractFunctionClass struct {
 }
 
 func (c *jsonExtractFunctionClass) getFunction(args []Expression, ctx context.Context) (builtinFunc, error) {
-	return &builtinJsonExtractSig{newBaseBuiltinFunc(args, ctx)}, errors.Trace(c.verifyArgs(args))
+	return &builtinJSONExtractSig{newBaseBuiltinFunc(args, ctx)}, errors.Trace(c.verifyArgs(args))
 }
 
-type builtinJsonExtractSig struct {
+type builtinJSONExtractSig struct {
 	baseBuiltinFunc
 }
 
-func (b *builtinJsonExtractSig) eval(row []types.Datum) (d types.Datum, err error) {
+func (b *builtinJSONExtractSig) eval(row []types.Datum) (d types.Datum, err error) {
 	args, err := b.evalArgs(row)
 	if err != nil {
 		return types.Datum{}, errors.Trace(err)
 	}
-	return JsonExtract(args[0], args[1])
+	return JSONExtract(args[0], args[1])
 }
 
 type jsonUnquoteFunctionClass struct {
@@ -135,17 +135,17 @@ type jsonUnquoteFunctionClass struct {
 }
 
 func (c *jsonUnquoteFunctionClass) getFunction(args []Expression, ctx context.Context) (builtinFunc, error) {
-	return &builtinJsonUnquoteSig{newBaseBuiltinFunc(args, ctx)}, errors.Trace(c.verifyArgs(args))
+	return &builtinJSONUnquoteSig{newBaseBuiltinFunc(args, ctx)}, errors.Trace(c.verifyArgs(args))
 }
 
-type builtinJsonUnquoteSig struct {
+type builtinJSONUnquoteSig struct {
 	baseBuiltinFunc
 }
 
-func (b *builtinJsonUnquoteSig) eval(row []types.Datum) (d types.Datum, err error) {
+func (b *builtinJSONUnquoteSig) eval(row []types.Datum) (d types.Datum, err error) {
 	args, err := b.evalArgs(row)
 	if err != nil {
 		return types.Datum{}, errors.Trace(err)
 	}
-	return JsonUnquote(args[0])
+	return JSONUnquote(args[0])
 }

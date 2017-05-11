@@ -68,7 +68,7 @@ func (s *testTErrorSuite) TestTError(c *C) {
 	c.Assert(sqlErr.Code, Equals, uint16(1062))
 }
 
-func (s *testTErrorSuite) TestJson(c *C) {
+func (s *testTErrorSuite) TestJSON(c *C) {
 	prevTErr := &Error{
 		class:   ClassTable,
 		code:    CodeExecResultIsEmpty,

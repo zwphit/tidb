@@ -72,8 +72,8 @@ func encode(b []byte, vals []types.Datum, comparable bool) ([]byte, error) {
 			b = encodeUnsignedInt(b, uint64(val.GetMysqlEnum().ToNumber()), comparable)
 		case types.KindMysqlSet:
 			b = encodeUnsignedInt(b, uint64(val.GetMysqlSet().ToNumber()), comparable)
-		case types.KindMysqlJson:
-			bytes, _ := val.GetMysqlJson().Serialize()
+		case types.KindMysqlJSON:
+			bytes := val.GetMysqlJSON().Serialize()
 			b = append(b, jsonFlag)
 			b = EncodeBytes(b, bytes)
 		case types.KindNull:
@@ -210,9 +210,9 @@ func DecodeOne(b []byte) (remain []byte, d types.Datum, err error) {
 		}
 	case jsonFlag:
 		var v []byte
-		var j json.Json = json.CreateJson(nil)
+		var j json.JSON = json.CreateJSON(nil)
 		b, v, err = DecodeBytes(b)
-		err = j.Deserialize(v)
+		j.Deserialize(v)
 		d.SetValue(j)
 	case NilFlag:
 	default:

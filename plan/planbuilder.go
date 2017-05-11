@@ -841,7 +841,7 @@ func (b *planBuilder) buildExplain(explain *ast.ExplainStmt) Plan {
 		RetType: types.NewFieldType(mysql.TypeString),
 	})
 	schema.Append(&expression.Column{
-		ColName: model.NewCIStr("Json"),
+		ColName: model.NewCIStr("JSON"),
 		RetType: types.NewFieldType(mysql.TypeString),
 	})
 	schema.Append(&expression.Column{

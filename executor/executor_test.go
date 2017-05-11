@@ -953,7 +953,7 @@ func (s *testSuite) TestBuiltin(c *C) {
 	result.Check(testkit.Rows("1"))
 }
 
-func (s *testSuite) TestJson(c *C) {
+func (s *testSuite) TestJSON(c *C) {
 	defer func() {
 		s.cleanEnv(c)
 		testleak.AfterTest(c)()

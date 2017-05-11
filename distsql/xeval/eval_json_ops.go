@@ -14,20 +14,20 @@
 package xeval
 
 import (
-	"github.com/pingcap/tidb/expression"
+	//"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/util/types"
 	"github.com/pingcap/tipb/go-tipb"
 )
 
-func (e *Evaluator) evalJsonOps(expr *tipb.Expr) (d types.Datum, err error) {
+func (e *Evaluator) evalJSONOps(expr *tipb.Expr) (d types.Datum, err error) {
 	switch op := expr.GetTp(); op {
-	case tipb.ExprType_JsonExtract:
-		jsonDatum, _ := e.Eval(expr.Children[0])
-		jsonPath, _ := e.Eval(expr.Children[1])
-		return expression.JsonExtract(jsonDatum, jsonPath)
-	case tipb.ExprType_JsonUnquote:
-		jsonDatum, _ := e.Eval(expr.Children[0])
-		return expression.JsonUnquote(jsonDatum)
+	//case tipb.ExprType_JSONExtract:
+	//	jsonDatum, _ := e.Eval(expr.Children[0])
+	//	jsonPath, _ := e.Eval(expr.Children[1])
+	//	return expression.JSONExtract(jsonDatum, jsonPath)
+	//case tipb.ExprType_JSONUnquote:
+	//	jsonDatum, _ := e.Eval(expr.Children[0])
+	//	return expression.JSONUnquote(jsonDatum)
 	default:
 		d.SetNull()
 		return d, nil

@@ -279,18 +279,18 @@ const (
 	ValidatePasswordStrength = "validate_password_strength"
 
 	// json functions
-	JsonExtract  = "json_extract"
-	JsonType     = "json_type"
-	JsonArray    = "json_array"
-	JsonObject   = "json_object"
-	JsonMerge    = "json_merge"
-	JsonValid    = "json_valid"
-	JsonSet      = "json_set"
-	JsonInsert   = "json_insert"
-	JsonReplace  = "json_replace"
-	JsonRemove   = "json_remove"
-	JsonContains = "json_contains"
-	JsonUnquote  = "json_unquote"
+	JSONExtract  = "json_extract"
+	JSONType     = "json_type"
+	JSONArray    = "json_array"
+	JSONObject   = "json_object"
+	JSONMerge    = "json_merge"
+	JSONValid    = "json_valid"
+	JSONSet      = "json_set"
+	JSONInsert   = "json_insert"
+	JSONReplace  = "json_replace"
+	JSONRemove   = "json_remove"
+	JSONContains = "json_contains"
+	JSONUnquote  = "json_unquote"
 )
 
 // FuncCallExpr is for function expression.

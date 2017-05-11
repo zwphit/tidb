@@ -74,7 +74,7 @@ var type2Str = map[byte]string{
 	mysql.TypeFloat:      "float",
 	mysql.TypeGeometry:   "geometry",
 	mysql.TypeInt24:      "mediumint",
-	mysql.TypeJson:       "json",
+	mysql.TypeJSON:       "json",
 	mysql.TypeLong:       "int",
 	mysql.TypeLonglong:   "bigint",
 	mysql.TypeLongBlob:   "longtext",

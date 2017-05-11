@@ -212,10 +212,6 @@ func deserialize(data []byte) (out interface{}, err error) {
 }
 
 func pop(typeCode byte, data []byte) (out interface{}, err error) {
-	if typeCode == 0 {
-		panic("fuck")
-		return nil, nil
-	}
 	var reader = bytes.NewReader(data)
 	switch typeCode {
 	case 0x04:

@@ -20,24 +20,24 @@ import (
 	"github.com/pingcap/tidb/util/types/json"
 )
 
-func (s *testEvaluatorSuite) TestJsonExtract(c *C) {
+func (s *testEvaluatorSuite) TestJSONExtract(c *C) {
 	defer testleak.AfterTest(c)()
-	fc := funcs[ast.JsonExtract]
+	fc := funcs[ast.JSONExtract]
 
 	tbl := []struct {
-		JsonObj  interface{}
+		JSONObj  interface{}
 		Path     interface{}
-		Expected json.Json
+		Expected json.JSON
 	}{
-		{nil, "$", json.CreateJson(nil)},
-		{"3", "$", json.CreateJson(3)},
-		{`"3"`, "$", json.CreateJson("3")},
-		{`{"a": [1, "2", {"aa": true}]}`, "$.a[2].aa", json.CreateJson(1)},
+		{nil, "$", json.CreateJSON(nil)},
+		{"3", "$", json.CreateJSON(3)},
+		{`"3"`, "$", json.CreateJSON("3")},
+		{`{"a": [1, "2", {"aa": true}]}`, "$.a[2].aa", json.CreateJSON(1)},
 	}
 	dtbl := tblToDtbl(tbl)
 
 	for _, t := range dtbl {
-		args := datumsToConstants(t["JsonObj"])
+		args := datumsToConstants(t["JSONObj"])
 		args = append(args, datumsToConstants(t["Path"])...)
 		f, err := fc.getFunction(args, s.ctx)
 		c.Assert(err, IsNil)
