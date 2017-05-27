@@ -13,7 +13,11 @@
 
 package json
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/juju/errors"
+)
 
 // Type returns type of JSON as string.
 func (j JSON) Type() string {
@@ -101,4 +105,92 @@ func extract(j JSON, pathExpr PathExpression) (ret []JSON) {
 		}
 	}
 	return
+}
+
+// Merge merges suffixes into j according the following rules:
+// 1) adjacent arrays are merged to a single array;
+// 2) adjacent object are merged to a single object;
+// 3) a scalar value is autowrapped as an array before merge;
+// 4) an adjacent array and object are merged by autowrapping the object as an array.
+func (j *JSON) Merge(suffixes []JSON) {
+	switch j.typeCode {
+	case typeCodeArray, typeCodeObject:
+	default:
+		firstElem := *j
+		*j = CreateJSON(nil)
+		j.typeCode = typeCodeArray
+		j.array = []JSON{firstElem}
+	}
+	for i := 0; i < len(suffixes); i++ {
+		suffix := suffixes[i]
+		switch j.typeCode {
+		case typeCodeArray:
+			if suffix.typeCode == typeCodeArray {
+				// rule (1)
+				for _, elem := range suffix.array {
+					j.array = append(j.array, elem)
+				}
+			} else {
+				// rule (3), (4)
+				j.array = append(j.array, suffix)
+			}
+		case typeCodeObject:
+			if suffix.typeCode == typeCodeObject {
+				// rule (2)
+				for key := range suffix.object {
+					j.object[key] = suffix.object[key]
+				}
+			} else {
+				// rule (4)
+				firstElem := *j
+				*j = CreateJSON(nil)
+				j.typeCode = typeCodeArray
+				j.array = []JSON{firstElem}
+				i--
+			}
+		}
+	}
+	return
+}
+
+// Set inserts or updates data in j. All path expressions cannot contains * or ** wildcard.
+func (j *JSON) Set(pathExprList []PathExpression, values []JSON) (err error) {
+	if len(pathExprList) != len(values) {
+		// TODO should return 1582(42000)
+		return errors.New("Incorrect parameter count")
+	}
+	for i := 0; i < len(pathExprList); i++ {
+		pathExpr := pathExprList[i]
+		if pathExpr.flags.containsAnyAsterisk() {
+			// TODO should return 3149(42000)
+			return errors.New("Invalid path expression")
+		}
+		value := values[i]
+		*j = set(*j, pathExpr, value)
+	}
+	return
+}
+
+func set(j JSON, pathExpr PathExpression, value JSON) JSON {
+	if len(pathExpr.legs) == 0 {
+		return value
+	}
+	currentLeg := pathExpr.legs[0]
+	pathExpr.legs = pathExpr.legs[1:]
+	if currentLeg.isArrayIndex && j.typeCode == typeCodeArray {
+		var index = currentLeg.arrayIndex
+		if len(j.array) > index {
+			j.array[index] = set(j.array[index], pathExpr, value)
+		} else if len(pathExpr.legs) == 0 {
+			j.array = append(j.array, value)
+		}
+	} else if !currentLeg.isArrayIndex && j.typeCode == typeCodeObject {
+		var key = pathExpr.raw[currentLeg.start+1 : currentLeg.end]
+		if child, ok := j.object[key]; ok {
+			j.object[key] = set(child, pathExpr, value)
+		} else if len(pathExpr.legs) == 0 {
+			j.object[key] = value
+		}
+	}
+	return j
 }
