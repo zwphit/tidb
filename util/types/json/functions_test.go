@@ -130,26 +130,31 @@ func (s *testJSONSuite) TestJSONMerge(c *C) {
 	}
 }
 
-func (s *testJSONSuite) TestJSONSet(c *C) {
+func (s *testJSONSuite) TestJSONSetIsertReplace(c *C) {
 	var base = parseFromStringPanic(`null`)
 	var caseList = []struct {
 		setField string
 		setValue JSON
+		mt       ModifyType
 		expected JSON
 	}{
-		{"$", parseFromStringPanic(`{}`), parseFromStringPanic(`{}`)},
-		{"$.a", parseFromStringPanic(`[]`), parseFromStringPanic(`{"a": []}`)},
-		{"$.a[1]", parseFromStringPanic(`3`), parseFromStringPanic(`{"a": [3]}`)},
+		{"$", parseFromStringPanic(`{}`), ModifySet, parseFromStringPanic(`{}`)},
+		{"$.a", parseFromStringPanic(`[]`), ModifySet, parseFromStringPanic(`{"a": []}`)},
+		{"$.a[1]", parseFromStringPanic(`3`), ModifySet, parseFromStringPanic(`{"a": [3]}`)},
 
 		// won't modify base because path doesn't exist.
-		{"$.b[1]", parseFromStringPanic(`3`), parseFromStringPanic(`{"a": [3]}`)},
-		{"$.a[2].b", parseFromStringPanic(`3`), parseFromStringPanic(`{"a": [3]}`)},
+		{"$.b[1]", parseFromStringPanic(`3`), ModifySet, parseFromStringPanic(`{"a": [3]}`)},
+		{"$.a[2].b", parseFromStringPanic(`3`), ModifySet, parseFromStringPanic(`{"a": [3]}`)},
+
+		// won't modify because of modify type.
+		{"$.a[1]", parseFromStringPanic(`30`), ModifyInsert, parseFromStringPanic(`{"a": [3]}`)},
+		{"$.a[2]", parseFromStringPanic(`30`), ModifyReplace, parseFromStringPanic(`{"a": [3]}`)},
 	}
 	for _, caseItem := range caseList {
 		pathExpr, err := validateJSONPathExpr(caseItem.setField)
 		c.Assert(err, IsNil)
 
-		err = base.Set([]PathExpression{pathExpr}, []JSON{caseItem.setValue})
+		err = base.SetInsertReplace([]PathExpression{pathExpr}, []JSON{caseItem.setValue}, caseItem.mt)
 		c.Assert(err, IsNil)
 
 		cmp, err := CompareJSON(base, caseItem.expected)

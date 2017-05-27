@@ -153,8 +153,22 @@ func (j *JSON) Merge(suffixes []JSON) {
 	return
 }
 
-// Set inserts or updates data in j. All path expressions cannot contains * or ** wildcard.
-func (j *JSON) Set(pathExprList []PathExpression, values []JSON) (err error) {
+// ModifyType is for modify a JSON. There are three valid values:
+// ModifyInsert, ModifyReplace and ModifySet.
+type ModifyType byte
+
+const (
+	// ModifyInsert is for insert a new element into a JSON.
+	ModifyInsert ModifyType = 0x01
+	// ModifyReplace is for replace an old elemList from a JSON.
+	ModifyReplace ModifyType = 0x02
+	// ModifySet = ModifyInsert | ModifyReplace
+	ModifySet ModifyType = 0x03
+)
+
+// SetInsertReplace modifies a JSON object by insert, replace or set.
+// All path expressions cannot contains * or ** wildcard.
+func (j *JSON) SetInsertReplace(pathExprList []PathExpression, values []JSON, mt ModifyType) (err error) {
 	if len(pathExprList) != len(values) {
 		// TODO should return 1582(42000)
 		return errors.New("Incorrect parameter count")
@@ -166,12 +180,12 @@ func (j *JSON) Set(pathExprList []PathExpression, values []JSON) (err error) {
 			return errors.New("Invalid path expression")
 		}
 		value := values[i]
-		*j = set(*j, pathExpr, value)
+		*j = set(*j, pathExpr, value, mt)
 	}
 	return
 }
 
-func set(j JSON, pathExpr PathExpression, value JSON) JSON {
+func set(j JSON, pathExpr PathExpression, value JSON, mt ModifyType) JSON {
 	if len(pathExpr.legs) == 0 {
 		return value
 	}
@@ -179,16 +193,16 @@ func set(j JSON, pathExpr PathExpression, value JSON) JSON {
 	pathExpr.legs = pathExpr.legs[1:]
 	if currentLeg.isArrayIndex && j.typeCode == typeCodeArray {
 		var index = currentLeg.arrayIndex
-		if len(j.array) > index {
-			j.array[index] = set(j.array[index], pathExpr, value)
-		} else if len(pathExpr.legs) == 0 {
+		if len(j.array) > index && mt&ModifyReplace != 0 {
+			j.array[index] = set(j.array[index], pathExpr, value, mt)
+		} else if len(pathExpr.legs) == 0 && mt&ModifyInsert != 0 {
 			j.array = append(j.array, value)
 		}
 	} else if !currentLeg.isArrayIndex && j.typeCode == typeCodeObject {
 		var key = pathExpr.raw[currentLeg.start+1 : currentLeg.end]
-		if child, ok := j.object[key]; ok {
-			j.object[key] = set(child, pathExpr, value)
-		} else if len(pathExpr.legs) == 0 {
+		if child, ok := j.object[key]; ok && mt&ModifyReplace != 0 {
+			j.object[key] = set(child, pathExpr, value, mt)
+		} else if len(pathExpr.legs) == 0 && mt&ModifyInsert != 0 {
 			j.object[key] = value
 		}
 	}
