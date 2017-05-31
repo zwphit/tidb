@@ -70,7 +70,7 @@ func (s *testJSONSuite) TestJSONExtract(c *C) {
 	for _, caseItem := range caseList {
 		var pathExprList = make([]PathExpression, 0)
 		for _, peStr := range caseItem.pathExprStrings {
-			pe, err := validateJSONPathExpr(peStr)
+			pe, err := ParseJSONPathExpr(peStr)
 			c.Assert(err, IsNil)
 			pathExprList = append(pathExprList, pe)
 		}
@@ -151,7 +151,7 @@ func (s *testJSONSuite) TestJSONSetIsertReplace(c *C) {
 		{"$.a[2]", parseFromStringPanic(`30`), ModifyReplace, parseFromStringPanic(`{"a": [3]}`)},
 	}
 	for _, caseItem := range caseList {
-		pathExpr, err := validateJSONPathExpr(caseItem.setField)
+		pathExpr, err := ParseJSONPathExpr(caseItem.setField)
 		c.Assert(err, IsNil)
 
 		err = base.SetInsertReplace([]PathExpression{pathExpr}, []JSON{caseItem.setValue}, caseItem.mt)
