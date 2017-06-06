@@ -25,6 +25,8 @@ import (
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/statistics"
 	"github.com/pingcap/tidb/util/types"
+
+	"github.com/ngaut/log"
 )
 
 const (
@@ -242,6 +244,7 @@ func (b *planBuilder) buildJoin(join *ast.Join) LogicalPlan {
 
 	if join.On != nil {
 		onExpr, _, err := b.rewrite(join.On.Expr, joinPlan, nil, false)
+		log.Errorf("join expr: %s\n", onExpr.String())
 		if err != nil {
 			b.err = err
 			return nil
@@ -273,6 +276,7 @@ func (b *planBuilder) buildSelection(p LogicalPlan, where ast.ExprNode, AggMappe
 	selection := Selection{}.init(b.allocator, b.ctx)
 	for _, cond := range conditions {
 		expr, np, err := b.rewrite(cond, p, AggMapper, false)
+		log.Errorf("selection expr: %s\n", expr)
 		if err != nil {
 			b.err = err
 			return nil
@@ -299,6 +303,7 @@ func (b *planBuilder) buildProjection(p LogicalPlan, fields []*ast.SelectField, 
 	oldLen := 0
 	for _, field := range fields {
 		newExpr, np, err := b.rewrite(field.Expr, p, mapper, true)
+		log.Errorf("projection newExpr: %s\n", newExpr.String())
 		if err != nil {
 			b.err = errors.Trace(err)
 			return nil, oldLen
