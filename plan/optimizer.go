@@ -22,6 +22,9 @@ import (
 	"github.com/pingcap/tidb/mysql"
 	"github.com/pingcap/tidb/privilege"
 	"github.com/pingcap/tidb/terror"
+
+	"github.com/ngaut/log"
+	"strings"
 )
 
 // AllowCartesianProduct means whether tidb allows cartesian join without equal conditions.
@@ -128,6 +131,9 @@ func doOptimize(flag uint64, logic LogicalPlan, ctx context.Context, allocator *
 
 func logicalOptimize(flag uint64, logic LogicalPlan, ctx context.Context, alloc *idAllocator) (LogicalPlan, error) {
 	var err error
+	if strings.Contains(ToString(logic), "test") {
+		log.Errorf("before opt: %s\n", ToString(logic))
+	}
 	for i, rule := range optRuleList {
 		// The order of flags is same as the order of optRule in the list.
 		// We use a bitmask to record which opt rules should be used. If the i-th bit is 1, it means we should
@@ -136,6 +142,9 @@ func logicalOptimize(flag uint64, logic LogicalPlan, ctx context.Context, alloc 
 			continue
 		}
 		logic, err = rule.optimize(logic, ctx, alloc)
+		if strings.Contains(ToString(logic), "test") {
+			log.Errorf("after opt: %s\n", ToString(logic))
+		}
 		if err != nil {
 			return nil, errors.Trace(err)
 		}

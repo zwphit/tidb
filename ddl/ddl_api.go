@@ -320,6 +320,7 @@ func columnDefToCol(ctx context.Context, offset int, colDef *ast.ColumnDef) (*ta
 				col.GeneratedStored = v.Stored
 				dependColNames, _ := findDependedColumnNames(*colDef)
 				col.Dependences = dependColNames
+				// Rewrite ast.Expr to expression.Expression.
 			case ast.ColumnOptionFulltext:
 				// TODO: Support this type.
 			}

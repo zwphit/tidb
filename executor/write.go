@@ -940,6 +940,11 @@ func (e *InsertValues) initDefaultValues(row []types.Datum, marked map[int]struc
 				e.ctx.GetSessionVars().RetryInfo.AddAutoIncrementID(recordID)
 			}
 		} else {
+			// If it's a generated column, eval its value from expression.
+			if c.ToInfo().GeneratedExprString != "" {
+
+			}
+
 			var err error
 			row[i], err = table.GetColDefaultValue(e.ctx, c.ToInfo())
 			if e.filterErr(err, ignoreErr) != nil {
