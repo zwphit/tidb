@@ -17,6 +17,7 @@ import (
 	"math"
 	"math/rand"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/juju/errors"
@@ -27,6 +28,11 @@ import (
 	"github.com/pingcap/tidb/terror"
 	goctx "golang.org/x/net/context"
 )
+
+func TestT(t *testing.T) {
+	CustomVerboseFlag = true
+	TestingT(t)
+}
 
 type testCommitterSuite struct {
 	cluster *mocktikv.Cluster

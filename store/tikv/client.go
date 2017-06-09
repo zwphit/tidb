@@ -15,18 +15,16 @@
 package tikv
 
 import (
-	"sync"
 	"time"
 
-	"github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/juju/errors"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
 	"github.com/pingcap/tidb/store/tikv/tikvrpc"
 	goctx "golang.org/x/net/context"
-	"google.golang.org/grpc"
 )
 
 const (
+	maxConnection     = 200
 	dialTimeout       = 5 * time.Second
 	readTimeoutShort  = 20 * time.Second  // For requests that read/write several key-values.
 	readTimeoutMedium = 60 * time.Second  // For requests that may need scan region.
@@ -54,67 +52,15 @@ type Client interface {
 // TODO: Implement background cleanup. It adds a backgroud goroutine to periodically check
 // whether there is any connection is idle and then close and remove these idle connections.
 type rpcClient struct {
-	sync.RWMutex
-	isClosed bool
-	conns    map[string]*grpc.ClientConn
+	p *Pools
 }
 
 func newRPCClient() *rpcClient {
 	return &rpcClient{
-		conns: make(map[string]*grpc.ClientConn),
+		p: NewPools(maxConnection, func(addr string) (*Conn, error) {
+			return NewConnection(addr, dialTimeout)
+		}),
 	}
-}
-
-func (c *rpcClient) getConn(addr string) (*grpc.ClientConn, error) {
-	c.RLock()
-	if c.isClosed {
-		c.RUnlock()
-		return nil, errors.Errorf("rpcClient is closed")
-	}
-	conn, ok := c.conns[addr]
-	c.RUnlock()
-	if !ok {
-		var err error
-		conn, err = c.createConn(addr)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return conn, nil
-}
-
-func (c *rpcClient) createConn(addr string) (*grpc.ClientConn, error) {
-	c.Lock()
-	defer c.Unlock()
-	conn, ok := c.conns[addr]
-	if !ok {
-		var err error
-		conn, err = grpc.Dial(
-			addr,
-			grpc.WithInsecure(),
-			grpc.WithTimeout(dialTimeout),
-			grpc.WithInitialWindowSize(grpcInitialWindowSize),
-			grpc.WithInitialConnWindowSize(grpcInitialConnWindowSize),
-			grpc.WithUnaryInterceptor(grpc_prometheus.UnaryClientInterceptor),
-			grpc.WithStreamInterceptor(grpc_prometheus.StreamClientInterceptor))
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		c.conns[addr] = conn
-	}
-	return conn, nil
-}
-
-func (c *rpcClient) closeConns() {
-	c.Lock()
-	if !c.isClosed {
-		c.isClosed = true
-		// close all connections
-		for _, conn := range c.conns {
-			conn.Close()
-		}
-	}
-	c.Unlock()
 }
 
 // SendReq sends a Request to server and receives Response.
@@ -126,13 +72,17 @@ func (c *rpcClient) SendReq(ctx goctx.Context, addr string, req *tikvrpc.Request
 	}
 	defer func() { sendReqHistogram.WithLabelValues(label).Observe(time.Since(start).Seconds()) }()
 
-	conn, err := c.getConn(addr)
+	conn, err := c.p.GetConn(addr)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	client := tikvpb.NewTikvClient(conn)
+	connPoolHistogram.WithLabelValues(label).Observe(time.Since(start).Seconds())
+	defer c.p.PutConn(conn)
+
+	client := tikvpb.NewTikvClient(conn.ClientConn)
 	resp, err := c.callRPC(ctx, client, req)
 	if err != nil {
+		conn.Close()
 		return nil, errors.Trace(err)
 	}
 	return resp, nil
@@ -246,6 +196,6 @@ func (c *rpcClient) callRPC(ctx goctx.Context, client tikvpb.TikvClient, req *ti
 }
 
 func (c *rpcClient) Close() error {
-	c.closeConns()
+	c.p.Close()
 	return nil
 }
