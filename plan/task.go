@@ -22,6 +22,8 @@ import (
 	"github.com/pingcap/tidb/mysql"
 	"github.com/pingcap/tidb/util/charset"
 	"github.com/pingcap/tidb/util/types"
+
+	"github.com/ngaut/log"
 )
 
 // task is a new version of `PhysicalPlanInfo`. It stores cost information for a task.
@@ -419,6 +421,7 @@ func (p *PhysicalAggregation) attach2Task(tasks ...task) task {
 	if cop, ok := task.(*copTask); ok {
 		partialAgg, finalAgg := p.newPartialAggregate()
 		if partialAgg != nil {
+			log.Errorf("aggregation can pushdown")
 			if cop.tablePlan != nil {
 				cop.finishIndexPlan()
 				partialAgg.SetChildren(cop.tablePlan)

@@ -22,6 +22,8 @@ import (
 	"github.com/pingcap/tidb/mysql"
 	"github.com/pingcap/tidb/privilege"
 	"github.com/pingcap/tidb/terror"
+
+	"github.com/ngaut/log"
 )
 
 // AllowCartesianProduct means whether tidb allows cartesian join without equal conditions.
@@ -150,6 +152,7 @@ func dagPhysicalOptimize(logic LogicalPlan) (PhysicalPlan, error) {
 	}
 	p := EliminateProjection(task.plan())
 	p.ResolveIndices()
+	log.Errorf("plan: %s\n", ToString(p))
 	return p, nil
 }
 
