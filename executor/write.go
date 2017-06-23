@@ -1135,7 +1135,6 @@ type UpdateExec struct {
 
 	SelectExec  Executor
 	OrderedList []*expression.Assignment
-	Offsets     []int // Offsets of every assignment in schema.
 
 	// updatedRowKeys is a map for unique (Table, handle) pair.
 	updatedRowKeys map[table.Table]map[int64]struct{}
@@ -1156,7 +1155,7 @@ func (e *UpdateExec) Next() (*Row, error) {
 		e.fetched = true
 	}
 
-	assignFlag, err := getUpdateColumns(e.OrderedList)
+	assignFlag, err := getUpdateColumns(e.schema, e.OrderedList)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -1185,6 +1184,11 @@ func (e *UpdateExec) Next() (*Row, error) {
 			continue
 		}
 		// Update row
+		log.Errorf("handle: : %v\n", handle)
+		log.Errorf("old data: %v\n", oldData)
+		log.Errorf("new data: %v\n", newTableData)
+		log.Errorf("flags: %v\n", flags)
+		log.Errorf("tbl: %v\n", tbl)
 		err1 := updateRecord(e.ctx, handle, oldData, newTableData, flags, tbl, false)
 		if err1 != nil {
 			return nil, errors.Trace(err1)
@@ -1195,13 +1199,14 @@ func (e *UpdateExec) Next() (*Row, error) {
 	return &Row{}, nil
 }
 
-func getUpdateColumns(assignList []*expression.Assignment) ([]bool, error) {
-	assignFlag := make([]bool, len(assignList))
-	for i, v := range assignList {
+func getUpdateColumns(schema *expression.Schema, assignList []*expression.Assignment) ([]bool, error) {
+	assignFlag := make([]bool, schema.Len())
+	for _, v := range assignList {
+		index := v.Col.Index
 		if v != nil {
-			assignFlag[i] = true
+			assignFlag[index] = true
 		} else {
-			assignFlag[i] = false
+			assignFlag[index] = false
 		}
 	}
 	return assignFlag, nil
@@ -1218,13 +1223,14 @@ func (e *UpdateExec) fetchRows() error {
 		}
 		newRowData := make([]types.Datum, len(row.Data))
 		copy(newRowData, row.Data)
-		for _, offset := range e.Offsets {
-			if e.OrderedList[offset] != nil {
-				val, err := e.OrderedList[offset].Expr.Eval(newRowData)
+		for _, assign := range e.OrderedList {
+			if assign != nil {
+				val, err := assign.Expr.Eval(newRowData)
 				if err != nil {
 					return errors.Trace(err)
 				}
-				newRowData[offset] = val
+				newRowData[assign.Col.Index] = val
+				log.Errorf("set %d to %v\n", assign.Col.Index, val.GetValue())
 			}
 		}
 		e.rows = append(e.rows, row)

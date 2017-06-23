@@ -785,10 +785,9 @@ func (b *executorBuilder) buildUnion(v *plan.Union) Executor {
 
 func (b *executorBuilder) buildUpdate(v *plan.Update) Executor {
 	return &UpdateExec{
-		baseExecutor: newBaseExecutor(nil, b.ctx),
+		baseExecutor: newBaseExecutor(v.Schema(), b.ctx),
 		SelectExec:   b.build(v.Children()[0]),
 		OrderedList:  v.OrderedList,
-		Offsets:      v.Offsets,
 	}
 }
 
