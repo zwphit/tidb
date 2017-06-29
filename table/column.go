@@ -255,6 +255,10 @@ func CheckOnce(cols []*Column) error {
 
 // CheckNotNull checks if nil value set to a column with NotNull flag is set.
 func (c *Column) CheckNotNull(data types.Datum) error {
+	if len(c.GeneratedExprString) != 0 && !c.GeneratedStored {
+		// For virtual generated columns, skip this check.
+		return nil
+	}
 	if mysql.HasNotNullFlag(c.Flag) && data.IsNull() {
 		return errColumnCantNull.Gen("Column %s can't be null.", c.Name)
 	}

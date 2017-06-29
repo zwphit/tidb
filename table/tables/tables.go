@@ -37,6 +37,8 @@ import (
 	"github.com/pingcap/tidb/util/parser"
 	"github.com/pingcap/tidb/util/types"
 	"github.com/pingcap/tipb/go-binlog"
+
+	"fmt"
 )
 
 // Table implements table.Table interface.
@@ -292,6 +294,17 @@ func (t *Table) rebuildIndices(rm kv.RetrieverMutator, h int64, touched map[int]
 
 // AddRecord implements table.Table AddRecord interface.
 func (t *Table) AddRecord(ctx context.Context, r []types.Datum) (recordID int64, err error) {
+	var colInfos = ""
+	var datums = ""
+	for _, c := range t.WritableCols() {
+		colInfos += fmt.Sprintf("%s, ", c.Name.O)
+	}
+	for _, d := range r {
+		datums += fmt.Sprintf("%v, ", d.GetValue())
+	}
+	log.Errorf("columns writable len: (%d/%d)", len(t.WritableCols()), len(t.Cols()))
+	log.Errorf("writable columns: %s", colInfos)
+	log.Errorf("datums: %s", datums)
 	var hasRecordID bool
 	for _, col := range t.Cols() {
 		if col.IsPKHandleColumn(t.meta) {

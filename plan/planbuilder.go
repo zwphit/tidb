@@ -609,21 +609,22 @@ func collectVisitInfoFromGrantStmt(vi []visitInfo, stmt *ast.GrantStmt) []visitI
 	return vi
 }
 
-func (b *planBuilder) getDefaultValue(col *table.Column) (*expression.Constant, error) {
-	value, err := table.GetColDefaultValue(b.ctx, col.ToInfo())
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return &expression.Constant{Value: value, RetType: &col.FieldType}, nil
-}
-
-func (b *planBuilder) findDefaultValue(cols []*table.Column, name *ast.ColumnName) (*expression.Constant, error) {
-	for _, col := range cols {
-		if col.Name.L == name.Name.L {
-			return b.getDefaultValue(col)
+func (b *planBuilder) rewriteValueOrDefault(column *table.Column, value ast.ExprNode, plan LogicalPlan) (expression.Expression, error) {
+	switch v := value.(type) {
+	case *ast.DefaultExpr:
+		// Here DefaultExpr.Name must be empty.
+		// See: https://dev.mysql.com/doc/refman/5.7/en/insert.html
+		value, err := table.GetColDefaultValue(b.ctx, column.ToInfo())
+		if err != nil {
+			return nil, errors.Trace(err)
 		}
+		return &expression.Constant{Value: value, RetType: &column.FieldType}, nil
+	case *ast.ValueExpr:
+		return &expression.Constant{Value: v.Datum, RetType: &v.Type}, nil
+	default:
+		expr, _, err := b.rewrite(v, plan, nil, true)
+		return expr, errors.Trace(err)
 	}
-	return nil, ErrUnknownColumn.GenByArgs(name.Name.O, "field_list")
 }
 
 func (b *planBuilder) buildInsert(insert *ast.InsertStmt) Plan {
@@ -647,7 +648,6 @@ func (b *planBuilder) buildInsert(insert *ast.InsertStmt) Plan {
 
 	insertPlan := Insert{
 		Table:       tableInPlan,
-		Columns:     insert.Columns,
 		tableSchema: schema,
 		IsReplace:   insert.IsReplace,
 		Priority:    insert.Priority,
@@ -660,215 +660,112 @@ func (b *planBuilder) buildInsert(insert *ast.InsertStmt) Plan {
 		table:     tableInfo.Name.L,
 	})
 
+	// columnByName is a map from column name to table.Column.
 	columnByName := make(map[string]*table.Column, len(insertPlan.Table.Cols()))
 	for _, col := range insertPlan.Table.Cols() {
 		columnByName[col.Name.L] = col
 	}
+	// mockPlan is for rewrite some expressions with the table schema.
+	var mockPlan = TableDual{}.init(b.allocator, b.ctx)
+	mockPlan.SetSchema(insertPlan.tableSchema)
 
-	// Check insert.Columns contains generated columns or not.
-	// It's for INSERT INTO t (...) VALUES (...)
-	if len(insert.Columns) > 0 {
-		for _, col := range insert.Columns {
-			if column, ok := columnByName[col.Name.L]; ok {
-				if len(column.GeneratedExprString) != 0 {
-					b.err = ErrBadGeneratedColumn.GenByArgs(col.Name.O, tableInfo.Name.O)
-					return nil
-				}
-			}
-		}
-	}
-
-	cols := insertPlan.Table.Cols()
-	maxValuesItemLength := 0 // the max length of items in VALUES list.
-	for _, valuesItem := range insert.Lists {
-		exprList := make([]expression.Expression, 0, len(valuesItem))
-		for i, valueItem := range valuesItem {
-			var expr expression.Expression
-			var err error
-			if dft, ok := valueItem.(*ast.DefaultExpr); ok {
-				if dft.Name != nil {
-					expr, err = b.findDefaultValue(cols, dft.Name)
+	// Complete Columns and Lists.
+	if len(insert.Lists) > 0 { // It's for VALUES list.
+		insertPlan.Columns = insert.Columns
+		insertPlan.Lists = make([][]expression.Expression, 0, len(insert.Lists))
+		for _, values := range insert.Lists {
+			var exprs = make([]expression.Expression, 0, len(values))
+			for i, value := range values {
+				var column *table.Column
+				if len(insertPlan.Columns) != 0 {
+					columnName := insertPlan.Columns[i].Name.L
+					column = columnByName[columnName]
 				} else {
-					expr, err = b.getDefaultValue(cols[i])
+					column = insertPlan.Table.Cols()[i]
 				}
-			} else if val, ok := valueItem.(*ast.ValueExpr); ok {
-				expr = &expression.Constant{
-					Value:   val.Datum,
-					RetType: &val.Type,
-				}
-			} else {
-				expr, _, err = b.rewrite(valueItem, nil, nil, true)
-			}
-			if err != nil {
-				b.err = errors.Trace(err)
-			}
-			exprList = append(exprList, expr)
-		}
-		if len(valuesItem) > maxValuesItemLength {
-			maxValuesItemLength = len(valuesItem)
-		}
-		insertPlan.Lists = append(insertPlan.Lists, exprList)
-	}
-
-	// It's for INSERT INTO t VALUES (...)
-	if len(insert.Columns) == 0 {
-		// The length of VALUES list maybe exceed table width,
-		// we ignore this here but do checking in executor.
-		var effectiveValuesLen int
-		if maxValuesItemLength <= len(tableInfo.Columns) {
-			effectiveValuesLen = maxValuesItemLength
-		} else {
-			effectiveValuesLen = len(tableInfo.Columns)
-		}
-		for i := 0; i < effectiveValuesLen; i++ {
-			col := tableInfo.Columns[i]
-			if len(col.GeneratedExprString) != 0 {
-				b.err = ErrBadGeneratedColumn.GenByArgs(col.Name.O, tableInfo.Name.O)
-				return nil
-			}
-		}
-	}
-
-	for _, assign := range insert.Setlist {
-		col, err := schema.FindColumn(assign.Column)
-		if err != nil {
-			b.err = errors.Trace(err)
-			return nil
-		}
-		if col == nil {
-			b.err = errors.Errorf("Can't find column %s", assign.Column)
-			return nil
-		}
-		// Check set list contains generated column or not.
-		if len(columnByName[assign.Column.Name.L].GeneratedExprString) != 0 {
-			b.err = ErrBadGeneratedColumn.GenByArgs(assign.Column.Name.O, tableInfo.Name.O)
-			return nil
-		}
-		// Here we keep different behaviours with MySQL. MySQL allow set a = b, b = a and the result is NULL, NULL.
-		// It's unreasonable.
-		expr, _, err := b.rewrite(assign.Expr, nil, nil, true)
-		if err != nil {
-			b.err = errors.Trace(err)
-			return nil
-		}
-		insertPlan.Setlist = append(insertPlan.Setlist, &expression.Assignment{
-			Col:  col,
-			Expr: expr,
-		})
-	}
-
-	mockTablePlan := TableDual{}.init(b.allocator, b.ctx)
-	mockTablePlan.SetSchema(schema)
-
-	onDupColNames := make([]string, 0)
-	for _, assign := range insert.OnDuplicate {
-		col, err := schema.FindColumn(assign.Column)
-		if err != nil {
-			b.err = errors.Trace(err)
-			return nil
-		}
-		if col == nil {
-			b.err = errors.Errorf("Can't find column %s", assign.Column)
-			return nil
-		}
-		// Check "on duplicate set list" contains generated column or not.
-		if len(columnByName[assign.Column.Name.L].GeneratedExprString) != 0 {
-			b.err = ErrBadGeneratedColumn.GenByArgs(assign.Column.Name.O, tableInfo.Name.O)
-			return nil
-		}
-		expr, _, err := b.rewrite(assign.Expr, mockTablePlan, nil, true)
-		if err != nil {
-			b.err = errors.Trace(err)
-			return nil
-		}
-		insertPlan.OnDuplicate = append(insertPlan.OnDuplicate, &expression.Assignment{
-			Col:  col,
-			Expr: expr,
-		})
-		onDupColNames = append(onDupColNames, assign.Column.Name.O)
-	}
-	if insert.Select != nil {
-		selectPlan := b.build(insert.Select)
-		if b.err != nil {
-			return nil
-		}
-		// If the schema of selectPlan contains any generated column, raises error.
-		var effectiveSelectLen int
-		if selectPlan.Schema().Len() <= len(tableInfo.Columns) {
-			effectiveSelectLen = selectPlan.Schema().Len()
-		} else {
-			effectiveSelectLen = len(tableInfo.Columns)
-		}
-		for i := 0; i < effectiveSelectLen; i++ {
-			col := tableInfo.Columns[i]
-			if len(col.GeneratedExprString) != 0 {
-				b.err = ErrBadGeneratedColumn.GenByArgs(col.Name.O, tableInfo.Name.O)
-				return nil
-			}
-		}
-		addChild(insertPlan, selectPlan)
-	}
-
-	// Calculate generated columns if (1) it's stored or (2) there are indices on that.
-	for _, column := range insertPlan.Table.Cols() {
-		if len(column.GeneratedExprString) == 0 {
-			continue
-		}
-		if column.GeneratedStored || tableInfo.ColumnIsInIndex(column.ToInfo()) {
-			if insertPlan.GenCols == nil {
-				insertPlan.GenCols = &InsertGeneratedColumns{
-					Columns: make([]*ast.ColumnName, 0),
-					Lists:   make([][]expression.Expression, len(insertPlan.Lists)),
-					Setlist: make([]*expression.Assignment, 0),
-				}
-			}
-			columnName := &ast.ColumnName{Name: column.Name}
-			columnName.SetText(column.Name.O)
-			expr, _, err := b.rewrite(column.GeneratedExpr, mockTablePlan, nil, true)
-			if err != nil {
-				b.err = errors.Trace(err)
-				return nil
-			}
-			// here we only store the expression, we'll eval that in executor.
-			if len(insertPlan.Columns) != 0 {
-				// for insert ... values (...).
-				insertPlan.GenCols.Columns = append(insertPlan.GenCols.Columns, columnName)
-				for i, exprList := range insertPlan.GenCols.Lists {
-					insertPlan.GenCols.Lists[i] = append(exprList, expr)
-				}
-			} else if len(insertPlan.Setlist) != 0 {
-				// for insert ... setlist.
-				col, err := schema.FindColumn(columnName)
+				expr, err := b.rewriteValueOrDefault(column, value, mockPlan)
 				if err != nil {
 					b.err = errors.Trace(err)
 					return nil
 				}
-				assign := &expression.Assignment{
+				exprs = append(exprs, expr)
+			}
+			insertPlan.Lists = append(insertPlan.Lists, exprs)
+		}
+	} else if len(insert.Setlist) > 0 { // It's for SET list
+		var exprs = make([]expression.Expression, 0, len(insert.Setlist))
+		for _, assign := range insert.Setlist {
+			_, _, err := mockPlan.findColumn(assign.Column)
+			if err != nil {
+				b.err = errors.Trace(err)
+				return nil
+			}
+			expr, _, err := b.rewrite(assign.Expr, mockPlan, nil, true)
+			if err != nil {
+				b.err = errors.Trace(err)
+				return nil
+			}
+			exprs = append(exprs, expr)
+			insertPlan.Columns = append(insertPlan.Columns, assign.Column)
+		}
+		insertPlan.Lists = append(insertPlan.Lists, exprs)
+	} else { // It's for INSERT ... SELECT ...
+		insertPlan.Columns = insert.Columns
+		var selectPlan = b.build(insert.Select)
+		addChild(insertPlan, selectPlan)
+	}
+
+	// Complete OnDuplicate lists.
+	onDupColNames := make(map[string]struct{})
+	for _, assign := range insert.OnDuplicate {
+		col, _, err := mockPlan.findColumn(assign.Column)
+		if err != nil {
+			b.err = errors.Trace(err)
+			return nil
+		}
+		expr, _, err := b.rewrite(assign.Expr, mockPlan, nil, true)
+		if err != nil {
+			b.err = errors.Trace(err)
+			return nil
+		}
+		insertPlan.OnDuplicate = append(insertPlan.OnDuplicate, expression.Assignment{
+			Col:  col,
+			Expr: expr,
+		})
+		onDupColNames[assign.Column.Name.O] = struct{}{}
+	}
+
+	// TODO: Check column count and specified times.
+	// TODO: Check whether it touches generated columns or not.
+
+	// Calculate all generated columns.
+	for _, column := range insertPlan.Table.Cols() {
+		if len(column.GeneratedExprString) == 0 {
+			continue
+		}
+		columnName := &ast.ColumnName{Name: column.Name}
+		columnName.SetText(column.Name.O)
+
+		expr, _, err := b.rewrite(column.GeneratedExpr, mockPlan, nil, true)
+		if err != nil {
+			b.err = errors.Trace(err)
+			return nil
+		}
+		insertPlan.GenColumns = append(insertPlan.GenColumns, columnName)
+		insertPlan.GenExprs = append(insertPlan.GenExprs, expr)
+		for colName := range column.Dependences {
+			if _, ok := onDupColNames[colName]; ok {
+				col, _, err := mockPlan.findColumn(columnName)
+				if err != nil {
+					b.err = errors.Trace(err)
+					return nil
+				}
+				insertPlan.OnDuplicate = append(insertPlan.OnDuplicate, expression.Assignment{
 					Col:  col,
 					Expr: expr,
-				}
-				insertPlan.GenCols.Setlist = append(insertPlan.GenCols.Setlist, assign)
-			}
-			// for on duplicate
-			if len(insertPlan.OnDuplicate) != 0 {
-				depChanged := false
-				for _, colName := range onDupColNames {
-					if _, ok := column.Dependences[colName]; ok {
-						depChanged = true
-						break
-					}
-				}
-				if depChanged {
-					col, err := schema.FindColumn(columnName)
-					if err != nil {
-						b.err = errors.Trace(err)
-						return nil
-					}
-					insertPlan.OnDuplicate = append(insertPlan.OnDuplicate, &expression.Assignment{
-						Col:  col,
-						Expr: expr,
-					})
-				}
+				})
+				onDupColNames[colName] = struct{}{}
+				break
 			}
 		}
 	}

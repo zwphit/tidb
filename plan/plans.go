@@ -108,14 +108,6 @@ type Simple struct {
 	Statement ast.StmtNode
 }
 
-// InsertGeneratedColumns is for completing generated columns in Insert.
-// We resolve generation expressions in plan, and eval those in executor.
-type InsertGeneratedColumns struct {
-	Columns []*ast.ColumnName
-	Lists   [][]expression.Expression
-	Setlist []*expression.Assignment
-}
-
 // Insert represents an insert plan.
 type Insert struct {
 	*basePlan
@@ -126,14 +118,15 @@ type Insert struct {
 	tableSchema *expression.Schema
 	Columns     []*ast.ColumnName
 	Lists       [][]expression.Expression
-	Setlist     []*expression.Assignment
-	OnDuplicate []*expression.Assignment
+	OnDuplicate []expression.Assignment
+
+	// GenColumns and GenExprs are for generated columns.
+	GenColumns []*ast.ColumnName
+	GenExprs   []expression.Expression
 
 	IsReplace bool
 	Priority  mysql.PriorityEnum
 	Ignore    bool
-
-	GenCols *InsertGeneratedColumns
 }
 
 // AnalyzePKTask is used for analyze pk. Used only when pk is handle.

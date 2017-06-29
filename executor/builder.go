@@ -33,6 +33,9 @@ import (
 	"github.com/pingcap/tidb/util/types"
 	"github.com/pingcap/tipb/go-tipb"
 	goctx "golang.org/x/net/context"
+
+	"fmt"
+	"github.com/ngaut/log"
 )
 
 // executorBuilder builds an Executor from a Plan.
@@ -280,12 +283,22 @@ func (b *executorBuilder) buildSet(v *plan.Set) Executor {
 }
 
 func (b *executorBuilder) buildInsert(v *plan.Insert) Executor {
+	var genInfos = ""
+	for i := range v.GenColumns {
+		genInfos += fmt.Sprintf("(%s, %s) ", v.GenColumns[i].Name.O, v.GenExprs[i].String())
+	}
+	var colInfos = ""
+	for _, c := range v.Columns {
+		colInfos += fmt.Sprintf("%s, ", c.Name.O)
+	}
+	log.Errorf("col infos: %s", colInfos)
+	log.Errorf("gen infos: %s", genInfos)
 	ivs := &InsertValues{
-		ctx:       b.ctx,
-		Columns:   v.Columns,
-		Lists:     v.Lists,
-		Setlist:   v.Setlist,
-		GenValues: v.GenCols,
+		ctx:        b.ctx,
+		Columns:    v.Columns,
+		Lists:      v.Lists,
+		GenColumns: v.GenColumns,
+		GenExprs:   v.GenExprs,
 	}
 	if len(v.Children()) > 0 {
 		ivs.SelectExec = b.build(v.Children()[0])
@@ -310,8 +323,7 @@ func (b *executorBuilder) buildLoadData(v *plan.LoadData) Executor {
 		return nil
 	}
 	insertVal := &InsertValues{ctx: b.ctx, Table: tbl, Columns: v.Columns}
-	tableCols := tbl.WritableCols()
-	columns, err := insertVal.getColumns(tableCols)
+	columns, err := insertVal.getColumns()
 	if err != nil {
 		b.err = errors.Trace(err)
 		return nil

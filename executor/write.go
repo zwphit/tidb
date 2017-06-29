@@ -25,7 +25,6 @@ import (
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/mysql"
-	"github.com/pingcap/tidb/plan"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/terror"
 	"github.com/pingcap/tidb/util/types"
@@ -592,20 +591,19 @@ type InsertValues struct {
 	ctx          context.Context
 	SelectExec   Executor
 
-	Table     table.Table
-	Columns   []*ast.ColumnName
-	Lists     [][]expression.Expression
-	Setlist   []*expression.Assignment
-	IsPrepare bool
-
-	GenValues *plan.InsertGeneratedColumns
+	Table      table.Table
+	Columns    []*ast.ColumnName
+	Lists      [][]expression.Expression
+	GenColumns []*ast.ColumnName
+	GenExprs   []expression.Expression
+	IsPrepare  bool
 }
 
 // InsertExec represents an insert executor.
 type InsertExec struct {
 	*InsertValues
 
-	OnDuplicate []*expression.Assignment
+	OnDuplicate []expression.Assignment
 
 	Priority mysql.PriorityEnum
 	Ignore   bool
@@ -627,7 +625,7 @@ func (e *InsertExec) Next() (*Row, error) {
 	if e.finished {
 		return nil, nil
 	}
-	cols, err := e.getColumns(e.Table.Cols())
+	cols, err := e.getColumns()
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -721,80 +719,20 @@ func (e *InsertExec) Open() error {
 // 2 insert ... set x=y...   --> set type column
 // 3 insert ... (select ..)  --> name type column
 // See https://dev.mysql.com/doc/refman/5.7/en/insert.html
-func (e *InsertValues) getColumns(tableCols []*table.Column) ([]*table.Column, error) {
-	var cols []*table.Column
-	var err error
-
-	if len(e.Setlist) > 0 {
-		// Process `set` type column.
-		columns := make([]string, 0, len(e.Setlist))
-		for _, v := range e.Setlist {
-			columns = append(columns, v.Col.ColName.O)
-		}
-		if e.GenValues != nil {
-			for _, v := range e.GenValues.Setlist {
-				columns = append(columns, v.Col.ColName.O)
-			}
-		}
-		cols, err = table.FindCols(tableCols, columns)
-		if err != nil {
-			return nil, errors.Errorf("INSERT INTO %s: %s", e.Table.Meta().Name.O, err)
-		}
-		if len(cols) == 0 {
-			return nil, errors.Errorf("INSERT INTO %s: empty column", e.Table.Meta().Name.O)
-		}
-	} else {
-		// Process `name` type column.
-		columns := make([]string, 0, len(e.Columns))
-		for _, v := range e.Columns {
-			columns = append(columns, v.Name.O)
-		}
-		if e.GenValues != nil {
-			for _, v := range e.GenValues.Columns {
-				columns = append(columns, v.Name.O)
-			}
-		}
-		cols, err = table.FindCols(tableCols, columns)
-		if err != nil {
-			return nil, errors.Errorf("INSERT INTO %s: %s", e.Table.Meta().Name.O, err)
-		}
-		// If cols are empty, use all columns instead.
-		if len(cols) == 0 {
-			cols = tableCols
-		}
+func (e *InsertValues) getColumns() (cols []*table.Column, err error) {
+	// If there are no columns specified explicitly, use all columns instead.
+	if len(e.Columns) == 0 {
+		return e.Table.WritableCols(), nil
 	}
-
-	// Check column whether is specified only once.
-	err = table.CheckOnce(cols)
+	columns := make([]string, 0, len(e.Columns)+len(e.GenColumns))
+	for _, v := range append(e.Columns, e.GenColumns...) {
+		columns = append(columns, v.Name.O)
+	}
+	cols, err = table.FindCols(e.Table.Cols(), columns)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, errors.Errorf("INSERT INTO %s: %s", e.Table.Meta().Name.O, err)
 	}
-
-	return cols, nil
-}
-
-func (e *InsertValues) fillValueList() error {
-	if len(e.Setlist) > 0 {
-		if len(e.Lists) > 0 {
-			return errors.Errorf("INSERT INTO %s: set type should not use values", e.Table)
-		}
-		l := make([]expression.Expression, 0, len(e.Setlist))
-		for _, v := range e.Setlist {
-			l = append(l, v.Expr)
-		}
-		e.Lists = append(e.Lists, l)
-	}
-	if e.GenValues != nil && len(e.GenValues.Setlist) > 0 {
-		if len(e.GenValues.Lists) > 0 {
-			return errors.Errorf("INSERT INTO %s: set type should not use values", e.Table)
-		}
-		l := make([]expression.Expression, 0, len(e.GenValues.Setlist))
-		for _, v := range e.GenValues.Setlist {
-			l = append(l, v.Expr)
-		}
-		e.GenValues.Lists = append(e.GenValues.Lists, l)
-	}
-	return nil
+	return
 }
 
 func (e *InsertValues) checkValueCount(insertValueCount, valueCount, num int, cols []*table.Column) error {
@@ -817,23 +755,8 @@ func (e *InsertValues) checkValueCount(insertValueCount, valueCount, num int, co
 }
 
 func (e *InsertValues) getRows(cols []*table.Column) (rows [][]types.Datum, err error) {
-	// process `insert|replace ... set x=y...`
-	if err = e.fillValueList(); err != nil {
-		return nil, errors.Trace(err)
-	}
-
 	rows = make([][]types.Datum, len(e.Lists))
-	length := len(e.Lists[0])
-	if e.GenValues != nil {
-		length += len(e.GenValues.Lists[0])
-	}
 	for i, list := range e.Lists {
-		if e.GenValues != nil {
-			list = append(list, e.GenValues.Lists[i]...)
-		}
-		if err = e.checkValueCount(length, len(list), i, cols); err != nil {
-			return nil, errors.Trace(err)
-		}
 		e.currRow = int64(i)
 		rows[i], err = e.getRow(cols, list)
 		if err != nil {
@@ -844,9 +767,8 @@ func (e *InsertValues) getRows(cols []*table.Column) (rows [][]types.Datum, err 
 }
 
 func (e *InsertValues) getRow(cols []*table.Column, list []expression.Expression) ([]types.Datum, error) {
-	length := len(e.Lists[0]) // It's length of elements coming from values(...) explicitly.
-	vals := make([]types.Datum, length)
-	for i, expr := range list[0:length] {
+	vals := make([]types.Datum, len(list))
+	for i, expr := range list {
 		val, err := expr.Eval(nil)
 		if err != nil {
 			return nil, errors.Trace(err)
@@ -856,18 +778,6 @@ func (e *InsertValues) getRow(cols []*table.Column, list []expression.Expression
 	datums, err := e.fillRowData(cols, vals, false)
 	if err != nil {
 		return nil, errors.Trace(err)
-	}
-	// For generated column, we should eval expr with a datum list
-	// which has same schema with e.Table. And, we can eval them one
-	// by one, because they can only refer generated columns occurring
-	// earilier in the table.
-	for i, expr := range list[length:] {
-		val, err := expr.Eval(datums)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		offset := cols[length+i].Offset
-		datums[offset] = val
 	}
 	return datums, nil
 }
@@ -897,7 +807,12 @@ func (e *InsertValues) getRowsSelect(cols []*table.Column) ([][]types.Datum, err
 }
 
 func (e *InsertValues) fillRowData(cols []*table.Column, vals []types.Datum, ignoreErr bool) ([]types.Datum, error) {
-	row := make([]types.Datum, len(e.Table.Cols()))
+	var colsMsg = ""
+	for _, col := range cols {
+		colsMsg += fmt.Sprintf("%s, ", col.Name.O)
+	}
+	log.Errorf("%s", colsMsg)
+	row := make([]types.Datum, len(e.Table.WritableCols()))
 	marked := make(map[int]struct{}, len(vals))
 	for i, v := range vals {
 		offset := cols[i].Offset
@@ -910,10 +825,19 @@ func (e *InsertValues) fillRowData(cols []*table.Column, vals []types.Datum, ign
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	for i, expr := range e.GenExprs {
+		val, err := expr.Eval(row)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		offset := cols[i+len(vals)].Offset
+		row[offset] = val
+		log.Errorf("row[%d] <- %s", offset, expr.String())
+	}
 	if err = table.CastValues(e.ctx, row, cols, ignoreErr); err != nil {
 		return nil, errors.Trace(err)
 	}
-	if err = table.CheckNotNull(e.Table.Cols(), row); err != nil {
+	if err = table.CheckNotNull(e.Table.WritableCols(), row); err != nil {
 		return nil, errors.Trace(err)
 	}
 	return row, nil
@@ -982,7 +906,7 @@ func (e *InsertValues) initDefaultValues(row []types.Datum, marked map[int]struc
 				e.ctx.GetSessionVars().RetryInfo.AddAutoIncrementID(recordID)
 			}
 		} else if len(c.GeneratedExprString) != 0 {
-			// just leave generated column as null.
+			// Just leave generated column as null. We will calculate them later.
 			row[i].SetNull()
 		} else {
 			var err error
@@ -1003,7 +927,7 @@ func (e *InsertValues) initDefaultValues(row []types.Datum, marked map[int]struc
 
 // onDuplicateUpdate updates the duplicate row.
 // TODO: Report rows affected and last insert id.
-func (e *InsertExec) onDuplicateUpdate(row []types.Datum, h int64, cols []*expression.Assignment) error {
+func (e *InsertExec) onDuplicateUpdate(row []types.Datum, h int64, cols []expression.Assignment) error {
 	data, err := e.Table.Row(e.ctx, h)
 	if err != nil {
 		return errors.Trace(err)
@@ -1074,7 +998,7 @@ func (e *ReplaceExec) Next() (*Row, error) {
 	if e.finished {
 		return nil, nil
 	}
-	cols, err := e.getColumns(e.Table.Cols())
+	cols, err := e.getColumns()
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
