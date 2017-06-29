@@ -116,12 +116,12 @@ type Insert struct {
 
 	Table       table.Table
 	tableSchema *expression.Schema
-	Columns     []*ast.ColumnName
+	Columns     []*table.Column
 	Lists       [][]expression.Expression
 	OnDuplicate []expression.Assignment
 
 	// GenColumns and GenExprs are for generated columns.
-	GenColumns []*ast.ColumnName
+	GenColumns []*table.Column
 	GenExprs   []expression.Expression
 
 	IsReplace bool
@@ -162,8 +162,8 @@ type LoadData struct {
 
 	IsLocal    bool
 	Path       string
-	Table      *ast.TableName
-	Columns    []*ast.ColumnName
+	Table      table.Table
+	Columns    []*table.Column
 	FieldsInfo *ast.FieldsClause
 	LinesInfo  *ast.LinesClause
 }

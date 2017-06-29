@@ -39,26 +39,29 @@ var (
 	ErrAnalyzeMissIndex     = terror.ClassOptimizerPlan.New(CodeAnalyzeMissIndex, "Index '%s' in field list does not exist in table '%s'")
 	ErrAlterAutoID          = terror.ClassAutoid.New(CodeAlterAutoID, "No support for setting auto_increment using alter_table")
 	ErrBadGeneratedColumn   = terror.ClassOptimizerPlan.New(CodeBadGeneratedColumn, mysql.MySQLErrName[mysql.ErrBadGeneratedColumn])
+	ErrWrongValueCountOnRow = terror.ClassOptimizerPlan.New(CodeWrongValueCountOnRow, "Column count doesn't match value count at row %d")
 )
 
 // Error codes.
 const (
-	CodeUnsupportedType    terror.ErrCode = 1
-	SystemInternalError    terror.ErrCode = 2
-	CodeAlterAutoID        terror.ErrCode = 3
-	CodeAnalyzeMissIndex   terror.ErrCode = 4
-	CodeAmbiguous          terror.ErrCode = 1052
-	CodeUnknownColumn      terror.ErrCode = 1054
-	CodeWrongArguments     terror.ErrCode = 1210
-	CodeBadGeneratedColumn terror.ErrCode = mysql.ErrBadGeneratedColumn
+	CodeUnsupportedType      terror.ErrCode = 1
+	SystemInternalError      terror.ErrCode = 2
+	CodeAlterAutoID          terror.ErrCode = 3
+	CodeAnalyzeMissIndex     terror.ErrCode = 4
+	CodeAmbiguous            terror.ErrCode = 1052
+	CodeUnknownColumn        terror.ErrCode = 1054
+	CodeWrongValueCountOnRow terror.ErrCode = 1136 // MySQL error code
+	CodeWrongArguments       terror.ErrCode = 1210
+	CodeBadGeneratedColumn   terror.ErrCode = mysql.ErrBadGeneratedColumn
 )
 
 func init() {
 	tableMySQLErrCodes := map[terror.ErrCode]uint16{
-		CodeUnknownColumn:      mysql.ErrBadField,
-		CodeAmbiguous:          mysql.ErrNonUniq,
-		CodeWrongArguments:     mysql.ErrWrongArguments,
-		CodeBadGeneratedColumn: mysql.ErrBadGeneratedColumn,
+		CodeUnknownColumn:        mysql.ErrBadField,
+		CodeAmbiguous:            mysql.ErrNonUniq,
+		CodeWrongValueCountOnRow: mysql.ErrWrongValueCountOnRow,
+		CodeWrongArguments:       mysql.ErrWrongArguments,
+		CodeBadGeneratedColumn:   mysql.ErrBadGeneratedColumn,
 	}
 	terror.ErrClassToMySQLCodes[terror.ClassOptimizerPlan] = tableMySQLErrCodes
 }
@@ -627,6 +630,18 @@ func (b *planBuilder) rewriteValueOrDefault(column *table.Column, value ast.Expr
 	}
 }
 
+// completeColumns sets InsertPlan.Columns to explicitColumns, if it's not empty.
+// Otherwise InsertPlan will use all writable columns.
+func (p *Insert) completeColumns(columnByName map[string]*table.Column, explicitColumns []*ast.ColumnName) {
+	if len(explicitColumns) == 0 {
+		p.Columns = p.Table.WritableCols()
+		return
+	}
+	for _, colName := range explicitColumns {
+		p.Columns = append(p.Columns, columnByName[colName.Name.L])
+	}
+}
+
 func (b *planBuilder) buildInsert(insert *ast.InsertStmt) Plan {
 	ts, ok := insert.Table.TableRefs.Left.(*ast.TableSource)
 	if !ok {
@@ -661,8 +676,8 @@ func (b *planBuilder) buildInsert(insert *ast.InsertStmt) Plan {
 	})
 
 	// columnByName is a map from column name to table.Column.
-	columnByName := make(map[string]*table.Column, len(insertPlan.Table.Cols()))
-	for _, col := range insertPlan.Table.Cols() {
+	columnByName := make(map[string]*table.Column, len(insertPlan.Table.WritableCols()))
+	for _, col := range insertPlan.Table.WritableCols() {
 		columnByName[col.Name.L] = col
 	}
 	// mockPlan is for rewrite some expressions with the table schema.
@@ -671,18 +686,12 @@ func (b *planBuilder) buildInsert(insert *ast.InsertStmt) Plan {
 
 	// Complete Columns and Lists.
 	if len(insert.Lists) > 0 { // It's for VALUES list.
-		insertPlan.Columns = insert.Columns
+		insertPlan.completeColumns(columnByName, insert.Columns)
 		insertPlan.Lists = make([][]expression.Expression, 0, len(insert.Lists))
 		for _, values := range insert.Lists {
 			var exprs = make([]expression.Expression, 0, len(values))
 			for i, value := range values {
-				var column *table.Column
-				if len(insertPlan.Columns) != 0 {
-					columnName := insertPlan.Columns[i].Name.L
-					column = columnByName[columnName]
-				} else {
-					column = insertPlan.Table.Cols()[i]
-				}
+				column := insertPlan.Columns[i]
 				expr, err := b.rewriteValueOrDefault(column, value, mockPlan)
 				if err != nil {
 					b.err = errors.Trace(err)
@@ -695,9 +704,9 @@ func (b *planBuilder) buildInsert(insert *ast.InsertStmt) Plan {
 	} else if len(insert.Setlist) > 0 { // It's for SET list
 		var exprs = make([]expression.Expression, 0, len(insert.Setlist))
 		for _, assign := range insert.Setlist {
-			_, _, err := mockPlan.findColumn(assign.Column)
-			if err != nil {
-				b.err = errors.Trace(err)
+			column, ok := columnByName[assign.Column.Name.L]
+			if !ok {
+				b.err = ErrUnknownColumn.GenByArgs(assign.Column.Name.O, insertPlan.Table.Meta().Name.O)
 				return nil
 			}
 			expr, _, err := b.rewrite(assign.Expr, mockPlan, nil, true)
@@ -706,11 +715,11 @@ func (b *planBuilder) buildInsert(insert *ast.InsertStmt) Plan {
 				return nil
 			}
 			exprs = append(exprs, expr)
-			insertPlan.Columns = append(insertPlan.Columns, assign.Column)
+			insertPlan.Columns = append(insertPlan.Columns, column)
 		}
 		insertPlan.Lists = append(insertPlan.Lists, exprs)
 	} else { // It's for INSERT ... SELECT ...
-		insertPlan.Columns = insert.Columns
+		insertPlan.completeColumns(columnByName, insert.Columns)
 		var selectPlan = b.build(insert.Select)
 		addChild(insertPlan, selectPlan)
 	}
@@ -735,27 +744,54 @@ func (b *planBuilder) buildInsert(insert *ast.InsertStmt) Plan {
 		onDupColNames[assign.Column.Name.O] = struct{}{}
 	}
 
-	// TODO: Check column count and specified times.
-	// TODO: Check whether it touches generated columns or not.
+	// Check column count and specified times. // TODO also check specified times.
+	if len(insertPlan.Lists) > 0 {
+		for i, list := range insertPlan.Lists {
+			if len(insert.Columns) == 0 && len(list) == 0 {
+				continue
+			}
+			if len(list) != len(insertPlan.Columns) {
+				b.err = ErrWrongValueCountOnRow.GenByArgs(i + 1)
+				return nil
+			}
+		}
+	} else if len(insertPlan.children) > 0 {
+		if insertPlan.children[0].Schema().Len() != len(insertPlan.Columns) {
+			b.err = ErrWrongValueCountOnRow.GenByArgs(1)
+			return nil
+		}
+	}
+	// Check whether it touches generated columns or not.
+	for _, column := range insertPlan.Columns {
+		if len(column.GeneratedExprString) != 0 {
+			b.err = ErrBadGeneratedColumn.GenByArgs(column.Name.O, insertPlan.Table.Meta().Name.O)
+			return nil
+		}
+	}
+	for _, assign := range insertPlan.OnDuplicate {
+		colName := assign.Col.ColName.L
+		column := columnByName[colName]
+		if len(column.GeneratedExprString) != 0 {
+			b.err = ErrBadGeneratedColumn.GenByArgs(column.Name.O, insertPlan.Table.Meta().Name.O)
+			return nil
+		}
+	}
 
 	// Calculate all generated columns.
-	for _, column := range insertPlan.Table.Cols() {
+	for _, column := range insertPlan.Table.WritableCols() {
 		if len(column.GeneratedExprString) == 0 {
 			continue
 		}
-		columnName := &ast.ColumnName{Name: column.Name}
-		columnName.SetText(column.Name.O)
-
 		expr, _, err := b.rewrite(column.GeneratedExpr, mockPlan, nil, true)
 		if err != nil {
 			b.err = errors.Trace(err)
 			return nil
 		}
-		insertPlan.GenColumns = append(insertPlan.GenColumns, columnName)
+		insertPlan.GenColumns = append(insertPlan.GenColumns, columnByName[column.Name.L])
 		insertPlan.GenExprs = append(insertPlan.GenExprs, expr)
 		for colName := range column.Dependences {
 			if _, ok := onDupColNames[colName]; ok {
-				col, _, err := mockPlan.findColumn(columnName)
+				col, _, err := mockPlan.findColumn(&ast.ColumnName{Name: column.Name})
 				if err != nil {
 					b.err = errors.Trace(err)
 					return nil
@@ -774,11 +810,36 @@ func (b *planBuilder) buildInsert(insert *ast.InsertStmt) Plan {
 }
 
 func (b *planBuilder) buildLoadData(ld *ast.LoadDataStmt) Plan {
+	tbl, ok := b.is.TableByID(ld.Table.TableInfo.ID)
+	if !ok {
+		b.err = errors.Errorf("Can not get table %d", ld.Table.TableInfo.ID)
+		return nil
+	}
+	var columns []*table.Column
+	if len(ld.Columns) > 0 {
+		var allColumns = tbl.WritableCols()
+		var columnByName = make(map[string]*table.Column, len(allColumns))
+		for _, col := range allColumns {
+			columnByName[col.Name.L] = col
+		}
+		columns = make([]*table.Column, 0, len(ld.Columns))
+		for _, col := range ld.Columns {
+			colName := col.Name.L
+			if column, ok := columnByName[colName]; ok {
+				columns = append(columns, column)
+			} else {
+				b.err = ErrUnknownColumn.GenByArgs(colName, tbl.Meta().Name.L)
+				return nil
+			}
+		}
+	} else {
+		columns = tbl.WritableCols()
+	}
 	p := &LoadData{
 		IsLocal:    ld.IsLocal,
 		Path:       ld.Path,
-		Table:      ld.Table,
-		Columns:    ld.Columns,
+		Table:      tbl,
+		Columns:    columns,
 		FieldsInfo: ld.FieldsInfo,
 		LinesInfo:  ld.LinesInfo,
 	}

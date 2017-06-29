@@ -592,9 +592,9 @@ type InsertValues struct {
 	SelectExec   Executor
 
 	Table      table.Table
-	Columns    []*ast.ColumnName
+	Columns    []*table.Column
 	Lists      [][]expression.Expression
-	GenColumns []*ast.ColumnName
+	GenColumns []*table.Column
 	GenExprs   []expression.Expression
 	IsPrepare  bool
 }
@@ -720,38 +720,7 @@ func (e *InsertExec) Open() error {
 // 3 insert ... (select ..)  --> name type column
 // See https://dev.mysql.com/doc/refman/5.7/en/insert.html
 func (e *InsertValues) getColumns() (cols []*table.Column, err error) {
-	// If there are no columns specified explicitly, use all columns instead.
-	if len(e.Columns) == 0 {
-		return e.Table.WritableCols(), nil
-	}
-	columns := make([]string, 0, len(e.Columns)+len(e.GenColumns))
-	for _, v := range append(e.Columns, e.GenColumns...) {
-		columns = append(columns, v.Name.O)
-	}
-	cols, err = table.FindCols(e.Table.Cols(), columns)
-	if err != nil {
-		return nil, errors.Errorf("INSERT INTO %s: %s", e.Table.Meta().Name.O, err)
-	}
-	return
-}
-
-func (e *InsertValues) checkValueCount(insertValueCount, valueCount, num int, cols []*table.Column) error {
-	// TODO: This check should be done in plan builder.
-	if insertValueCount != valueCount {
-		// "insert into t values (), ()" is valid.
-		// "insert into t values (), (1)" is not valid.
-		// "insert into t values (1), ()" is not valid.
-		// "insert into t values (1,2), (1)" is not valid.
-		// So the value count must be same for all insert list.
-		return ErrWrongValueCountOnRow.GenByArgs(num + 1)
-	}
-	if valueCount == 0 && len(e.Columns) > 0 {
-		// "insert into t (c1) values ()" is not valid.
-		return ErrWrongValueCountOnRow.GenByArgs(num + 1)
-	} else if valueCount > 0 && valueCount != len(cols) {
-		return ErrWrongValueCountOnRow.GenByArgs(num + 1)
-	}
-	return nil
+	return append(e.Columns, e.GenColumns...), nil
 }
 
 func (e *InsertValues) getRows(cols []*table.Column) (rows [][]types.Datum, err error) {
@@ -807,11 +776,11 @@ func (e *InsertValues) getRowsSelect(cols []*table.Column) ([][]types.Datum, err
 }
 
 func (e *InsertValues) fillRowData(cols []*table.Column, vals []types.Datum, ignoreErr bool) ([]types.Datum, error) {
-	var colsMsg = ""
-	for _, col := range cols {
-		colsMsg += fmt.Sprintf("%s, ", col.Name.O)
-	}
-	log.Errorf("%s", colsMsg)
+	// var colsMsg = ""
+	// for _, col := range cols {
+	// 	colsMsg += fmt.Sprintf("%s, ", col.Name.O)
+	// }
+	// log.Errorf("%s", colsMsg)
 	row := make([]types.Datum, len(e.Table.WritableCols()))
 	marked := make(map[int]struct{}, len(vals))
 	for i, v := range vals {
@@ -832,7 +801,7 @@ func (e *InsertValues) fillRowData(cols []*table.Column, vals []types.Datum, ign
 		}
 		offset := cols[i+len(vals)].Offset
 		row[offset] = val
-		log.Errorf("row[%d] <- %s", offset, expr.String())
+		// log.Errorf("row[%d] <- %s", offset, expr.String())
 	}
 	if err = table.CastValues(e.ctx, row, cols, ignoreErr); err != nil {
 		return nil, errors.Trace(err)

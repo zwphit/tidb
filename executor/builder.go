@@ -33,9 +33,8 @@ import (
 	"github.com/pingcap/tidb/util/types"
 	"github.com/pingcap/tipb/go-tipb"
 	goctx "golang.org/x/net/context"
-
-	"fmt"
-	"github.com/ngaut/log"
+	// "fmt"
+	// "github.com/ngaut/log"
 )
 
 // executorBuilder builds an Executor from a Plan.
@@ -283,16 +282,16 @@ func (b *executorBuilder) buildSet(v *plan.Set) Executor {
 }
 
 func (b *executorBuilder) buildInsert(v *plan.Insert) Executor {
-	var genInfos = ""
-	for i := range v.GenColumns {
-		genInfos += fmt.Sprintf("(%s, %s) ", v.GenColumns[i].Name.O, v.GenExprs[i].String())
-	}
-	var colInfos = ""
-	for _, c := range v.Columns {
-		colInfos += fmt.Sprintf("%s, ", c.Name.O)
-	}
-	log.Errorf("col infos: %s", colInfos)
-	log.Errorf("gen infos: %s", genInfos)
+	// var genInfos = ""
+	// for i := range v.GenColumns {
+	// 	genInfos += fmt.Sprintf("(%s, %s) ", v.GenColumns[i].Name.O, v.GenExprs[i].String())
+	// }
+	// var colInfos = ""
+	// for _, c := range v.Columns {
+	// 	colInfos += fmt.Sprintf("%s, ", c.Name.O)
+	// }
+	// log.Errorf("col infos: %s", colInfos)
+	// log.Errorf("gen infos: %s", genInfos)
 	ivs := &InsertValues{
 		ctx:        b.ctx,
 		Columns:    v.Columns,
@@ -317,12 +316,7 @@ func (b *executorBuilder) buildInsert(v *plan.Insert) Executor {
 }
 
 func (b *executorBuilder) buildLoadData(v *plan.LoadData) Executor {
-	tbl, ok := b.is.TableByID(v.Table.TableInfo.ID)
-	if !ok {
-		b.err = errors.Errorf("Can not get table %d", v.Table.TableInfo.ID)
-		return nil
-	}
-	insertVal := &InsertValues{ctx: b.ctx, Table: tbl, Columns: v.Columns}
+	insertVal := &InsertValues{ctx: b.ctx, Table: v.Table, Columns: v.Columns}
 	columns, err := insertVal.getColumns()
 	if err != nil {
 		b.err = errors.Trace(err)
@@ -335,7 +329,7 @@ func (b *executorBuilder) buildLoadData(v *plan.LoadData) Executor {
 			row:        make([]types.Datum, len(columns)),
 			insertVal:  insertVal,
 			Path:       v.Path,
-			Table:      tbl,
+			Table:      v.Table,
 			FieldsInfo: v.FieldsInfo,
 			LinesInfo:  v.LinesInfo,
 			Ctx:        b.ctx,
