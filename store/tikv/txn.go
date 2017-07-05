@@ -148,8 +148,8 @@ func (txn *tikvTxn) Commit() error {
 }
 
 func (txn *tikvTxn) onePhaseCommit() error {
-	log.Debug("[1PC] import txn with commit_ts:",txn.startTS)
-	commiter,err := newOnePhaseCommitter(txn)
+	log.Debug("[1PC] import txn with commit_ts:", txn.startTS)
+	commiter, err := newOnePhaseCommitter(txn)
 	if err != nil {
 		return errors.Trace(err)
 	}

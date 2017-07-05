@@ -76,10 +76,10 @@ func (c *Commiter) shouldWriteBinlog() bool {
 // twoPhaseCommitter executes a two-phase commit protocol.
 type twoPhaseCommitter struct {
 	Commiter
-	startTS   uint64
-	lockTTL   uint64
-	commitTS  uint64
-	mu        struct {
+	startTS  uint64
+	lockTTL  uint64
+	commitTS uint64
+	mu       struct {
 		sync.RWMutex
 		writtenKeys [][]byte
 		committed   bool
@@ -154,14 +154,14 @@ func newTwoPhaseCommitter(txn *tikvTxn) (*twoPhaseCommitter, error) {
 	txnWriteSizeHistogram.Observe(float64(size / 1024))
 
 	return &twoPhaseCommitter{
-		Commiter:Commiter{
+		Commiter: Commiter{
 			store:     txn.store,
 			txn:       txn,
 			keys:      keys,
 			mutations: mutations,
 		},
-		startTS:   txn.StartTS(),
-		lockTTL:   txnLockTTL(txn.startTime, size),
+		startTS: txn.StartTS(),
+		lockTTL: txnLockTTL(txn.startTime, size),
 	}, nil
 }
 

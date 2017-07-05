@@ -14,36 +14,36 @@
 package tikv
 
 import (
-	"sync/atomic"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
 	pb "github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/sessionctx/binloginfo"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tipb/go-binlog"
-	"github.com/pingcap/tidb/sessionctx/binloginfo"
-	 goctx "golang.org/x/net/context"
+	goctx "golang.org/x/net/context"
 )
 
 // twoPhaseCommitter executes a two-phase commit protocol.
 type onePhaseCommitter struct {
 	Commiter
-	commitTS   uint64
+	commitTS uint64
 }
 
 // newOnePhaseCommitter creates a oneTwoPhaseCommitter.
 func newOnePhaseCommitter(txn *tikvTxn) (*onePhaseCommitter, error) {
 	var (
-		keys    [][]byte
-		size    int
+		keys [][]byte
+		size int
 	)
 	mutations := make(map[string]*pb.Mutation)
 	err := txn.us.WalkBuffer(func(k kv.Key, v []byte) error {
 		if len(v) == 0 {
-			err := fmt.Errorf("Delete operation should do with 2PC,key:%+v",k)
-			log.Error("[1PC]:",err)
+			err := fmt.Errorf("Delete operation should do with 2PC,key:%+v", k)
+			log.Error("[1PC]:", err)
 			return err
 		}
 
@@ -84,23 +84,23 @@ func newOnePhaseCommitter(txn *tikvTxn) (*onePhaseCommitter, error) {
 	txnWriteSizeHistogram.Observe(float64(size / 1024))
 
 	return &onePhaseCommitter{
-		Commiter:Commiter{
+		Commiter: Commiter{
 			store:     txn.store,
 			txn:       txn,
 			keys:      keys,
 			mutations: mutations,
 		},
-		commitTS:   txn.StartTS(),
+		commitTS: txn.StartTS(),
 	}, nil
 }
 
 func (c *onePhaseCommitter) execute() error {
 	ctx := goctx.Background()
-	bo := NewBackoffer(importMaxBackoff,ctx)
-	return c.commitKeys(bo,c.keys)
+	bo := NewBackoffer(importMaxBackoff, ctx)
+	return c.commitKeys(bo, c.keys)
 }
 
-func (c onePhaseCommitter)commitKeys(bo *Backoffer, keys [][]byte) error {
+func (c onePhaseCommitter) commitKeys(bo *Backoffer, keys [][]byte) error {
 	if len(keys) == 0 {
 		return nil
 	}
@@ -129,8 +129,8 @@ func (c *onePhaseCommitter) importSingleBatch(bo *Backoffer, batch batchKeys) er
 	req := &pb.Request{
 		Type: pb.MessageType_CmdImport,
 		CmdImportReq: &pb.CmdImportRequest{
-			Mutations:           mutations,
-			CommitVersion:       c.commitTS,
+			Mutations:     mutations,
+			CommitVersion: c.commitTS,
 		},
 	}
 
@@ -154,11 +154,10 @@ func (c *onePhaseCommitter) importSingleBatch(bo *Backoffer, batch batchKeys) er
 	if errInfo == "" {
 		return nil
 	}
-	return errors.Trace(fmt.Errorf("[1PC] failed with %v",errInfo))
+	return errors.Trace(fmt.Errorf("[1PC] failed with %v", errInfo))
 }
 
-
-func (c onePhaseCommitter)doCommitOnBatches(bo *Backoffer, batches []batchKeys) error {
+func (c onePhaseCommitter) doCommitOnBatches(bo *Backoffer, batches []batchKeys) error {
 	backoffer, cancel := bo.Fork()
 	// Concurrently do the work for each batch.
 	ch := make(chan error, len(batches))
