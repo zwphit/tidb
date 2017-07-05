@@ -143,6 +143,31 @@ func (s *testSuite) TestCreateDropIndex(c *C) {
 	tk.MustExec("drop table drop_test")
 }
 
+func (s *testSuite) TestCreateDropDescIndex(c *C) {
+	defer testleak.AfterTest(c)()
+	tk := testkit.NewTestKit(c, s.store)
+	tk.MustExec("use test")
+	tk.MustExec("create table if not exists desc_index_table (a int, b int, index desc_idx (b desc))")
+	tk.MustExec("insert into desc_index_table values (1, 1), (2, 2)")
+	tk.MustQuery("select a, b from desc_index_table order by b desc").Check(testkit.Rows("2, 2", "1, 1"))
+	tk.MustQuery("select a, b from desc_index_table order by b").Check(testkit.Rows("1, 1", "2, 2"))
+	tk.MustExec("drop table desc_index_table")
+
+	tk.MustExec("create table if not exists desc_index_table (a int, b int)")
+	tk.MustExec("insert into desc_index_table values (1, 1), (2, 2)")
+	tk.MustExec("create index desc_index on desc_index_table (b desc)")
+	tk.MustQuery("select a, b from desc_index_table order by b desc").Check(testkit.Rows("2, 2", "1, 1"))
+	tk.MustQuery("select a, b from desc_index_table order by b").Check(testkit.Rows("1, 1", "2, 2"))
+	tk.MustExec("drop table desc_index_table")
+
+	tk.MustExec("create table if not exists desc_index_table (a int, b int)")
+	tk.MustExec("insert into desc_index_table values (1, 1), (2, 2)")
+	tk.MustExec("create index desc_index on desc_index_table (b desc)")
+	tk.MustQuery("select a, b from desc_index_table order by b desc").Check(testkit.Rows("2, 2", "1, 1"))
+	tk.MustQuery("select a, b from desc_index_table order by b").Check(testkit.Rows("1, 1", "2, 2"))
+	tk.MustExec("drop table desc_index_table")
+}
+
 func (s *testSuite) TestAlterTableAddColumn(c *C) {
 	defer testleak.AfterTest(c)()
 	tk := testkit.NewTestKit(c, s.store)

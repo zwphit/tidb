@@ -148,6 +148,10 @@ func (is *PhysicalIndexScan) matchProperty(prop *requiredProperty, infos ...*phy
 			sortedIS := is.Copy().(*PhysicalIndexScan)
 			sortedIS.OutOfOrder = false
 			sortedIS.Desc = allDesc && !allAsc
+			// If the first index column is desc ordered column, the index will be a desc index.
+			if is.Index.Columns[0].Desc {
+				sortedIS.Desc = !sortedIS.Desc
+			}
 			sortedIS.addLimit(prop.limit)
 			p := sortedIS.tryToAddUnionScan(sortedIS)
 			return enforceProperty(&requiredProperty{limit: prop.limit}, &physicalPlanInfo{

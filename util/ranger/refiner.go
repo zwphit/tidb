@@ -22,6 +22,7 @@ import (
 	"github.com/pingcap/tidb/model"
 	"github.com/pingcap/tidb/mysql"
 	"github.com/pingcap/tidb/sessionctx/variable"
+	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/types"
 )
 
@@ -94,6 +95,36 @@ func BuildIndexRange(sc *variable.StatementContext, tblInfo *model.TableInfo, in
 				}
 			}
 		}
+	}
+
+	if index.Columns[0].Desc {
+		var descRanges []*types.IndexRange
+		for _, ran := range ranges {
+			// len(ran.HighVal) should equal to len(ran.LowVal)
+			for i := 0; i < len(ran.HighVal); i++ {
+				if (ran.LowVal[i].Kind() == types.KindNull) && (ran.HighVal[i].Kind() == types.KindMaxValue) {
+					// For order by full range (without where condition),
+					// LowVal should be null type and HighVal should be max value.
+					ran.LowVal[i].SetKind(types.KindMaxValue)
+					ran.HighVal[i].SetKind(types.KindNull)
+				} else {
+					err := codec.ReverseComparableDatum(&ran.LowVal[i])
+					if err != nil {
+						return nil, errors.Trace(err)
+					}
+					err = codec.ReverseComparableDatum(&ran.HighVal[i])
+					if err != nil {
+						return nil, errors.Trace(err)
+					}
+				}
+			}
+			ran.LowVal, ran.HighVal = ran.HighVal, ran.LowVal
+			ran.LowExclude, ran.HighExclude = ran.HighExclude, ran.LowExclude
+			// Ranges append in desc order
+			descRanges = append([]*types.IndexRange{ran}, descRanges...)
+		}
+		return descRanges, errors.Trace(rb.err)
+
 	}
 	return ranges, errors.Trace(rb.err)
 }

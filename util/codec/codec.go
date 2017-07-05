@@ -39,6 +39,59 @@ const (
 	maxFlag          byte = 250
 )
 
+// ReverseComparableDatum reverse datum which could be comparable.
+func ReverseComparableDatum(val *types.Datum) error {
+	switch val.Kind() {
+	case types.KindInt64:
+		val.SetInt64(^val.GetInt64())
+	case types.KindUint64:
+		val.SetUint64(^val.GetUint64())
+	case types.KindFloat32, types.KindFloat64:
+		val.SetFloat64(-val.GetFloat64())
+	case types.KindString:
+		runes := []rune(val.GetString())
+		for i, v := range runes {
+			runes[i] = ^v
+		}
+		val.SetString(string(runes))
+	case types.KindBytes:
+		bytes := val.GetBytes()
+		for i, v := range bytes {
+			bytes[i] = ^v
+		}
+		val.SetBytes([]byte(bytes))
+	case types.KindMysqlTime:
+		t := val.GetMysqlTime()
+		v, err := t.ToPackedUint()
+		if err != nil {
+			return errors.Trace(err)
+		}
+		t.FromPackedUint(^v)
+		val.SetMysqlTime(t)
+	case types.KindMysqlDuration:
+		val.SetMysqlDuration(types.Duration{^val.GetMysqlDuration().Duration, 0})
+	case types.KindMysqlHex:
+		h := types.Hex{Value: ^int64(val.GetMysqlHex().ToNumber())}
+		val.SetMysqlHex(h)
+	case types.KindMysqlBit:
+		b := types.Bit{Value: ^uint64(val.GetMysqlBit().ToNumber()), Width: types.MaxBitWidth}
+		val.SetMysqlBit(b)
+	case types.KindMysqlEnum:
+		e := types.Enum{Name: val.GetMysqlEnum().String(), Value: ^uint64(val.GetMysqlEnum().ToNumber())}
+		val.SetMysqlEnum(e)
+	case types.KindMysqlSet:
+		s := types.Set{Name: val.GetMysqlSet().String(), Value: ^uint64(val.GetMysqlSet().ToNumber())}
+		val.SetMysqlSet(s)
+	case types.KindMinNotNull:
+		val.SetKind(types.KindMaxValue)
+	case types.KindMaxValue:
+		val.SetKind(types.KindMinNotNull)
+	default:
+		return errors.Errorf("type %d is not comparable", val.Kind())
+	}
+	return nil
+}
+
 func encode(b []byte, vals []types.Datum, comparable bool) ([]byte, error) {
 	for _, val := range vals {
 		switch val.Kind() {

@@ -279,6 +279,7 @@ func (e *IndexLookUpExecutor) Open() error {
 	for i, v := range e.index.Columns {
 		fieldTypes[i] = &(e.table.Cols()[v.Offset].FieldType)
 	}
+
 	kvRanges, err := indexRangesToKVRanges(e.ctx.GetSessionVars().StmtCtx, e.tableID, e.index.ID, e.ranges, fieldTypes)
 	if err != nil {
 		return errors.Trace(err)

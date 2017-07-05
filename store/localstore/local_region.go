@@ -726,6 +726,7 @@ func reverseKVRanges(kvRanges []kv.KeyRange) {
 func (rs *localRegion) getIndexRowFromRange(ctx *selectContext, ran kv.KeyRange, desc bool, limit int64) (count int64, err error) {
 	idxInfo := ctx.sel.IndexInfo
 	txn := ctx.txn
+
 	var seekKey kv.Key
 	if desc {
 		seekKey = ran.EndKey
