@@ -97,10 +97,10 @@ func newOnePhaseCommitter(txn *tikvTxn) (*onePhaseCommitter, error) {
 func (c *onePhaseCommitter) execute() error {
 	ctx := goctx.Background()
 	bo := NewBackoffer(importMaxBackoff,ctx)
-	return c.commit_keys(bo,c.keys)
+	return c.commitKeys(bo,c.keys)
 }
 
-func (c onePhaseCommitter)commit_keys(bo *Backoffer, keys [][]byte) error {
+func (c onePhaseCommitter)commitKeys(bo *Backoffer, keys [][]byte) error {
 	if len(keys) == 0 {
 		return nil
 	}
@@ -143,7 +143,7 @@ func (c *onePhaseCommitter) importSingleBatch(bo *Backoffer, batch batchKeys) er
 		if err != nil {
 			return errors.Trace(err)
 		}
-		err = c.commit_keys(bo, batch.keys)
+		err = c.commitKeys(bo, batch.keys)
 		return errors.Trace(err)
 	}
 	respDetail := resp.GetCmdImportResp()

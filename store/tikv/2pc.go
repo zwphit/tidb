@@ -57,6 +57,7 @@ func (ca twoPhaseCommitAction) MetricsTag() string {
 	return "2pc_" + ca.String()
 }
 
+// Commiter is the commiter for 1pc
 type Commiter struct {
 	store     *tikvStore
 	txn       *tikvTxn
