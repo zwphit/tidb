@@ -70,7 +70,6 @@ type ColumnInfo struct {
 	types.FieldType     `json:"type"`
 	State               SchemaState `json:"state"`
 	Comment             string      `json:"comment"`
-	Desc                bool        `json:"desc"`
 }
 
 // Clone clones ColumnInfo.
@@ -209,6 +208,7 @@ type IndexInfo struct {
 	State   SchemaState    `json:"state"`
 	Comment string         `json:"comment"`    // Comment
 	Tp      IndexType      `json:"index_type"` // Index type: Btree or Hash
+	Desc    bool           `json:"desc"`       // Index order: asc(false), desc(true)
 }
 
 // Clone clones IndexInfo.

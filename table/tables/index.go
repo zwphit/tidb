@@ -131,7 +131,7 @@ func (c *index) GenIndexKey(indexedValues []types.Datum, h int64) (key []byte, d
 		}
 	}
 
-	if c.idxInfo.Columns[0].Desc {
+	if c.idxInfo.Desc {
 		for i := range c.idxInfo.Columns {
 			err = codec.ReverseComparableDatum(&indexedValues[i])
 			if err != nil {

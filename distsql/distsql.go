@@ -314,7 +314,6 @@ func columnToProto(c *model.ColumnInfo) *tipb.ColumnInfo {
 		Decimal:   int32(c.FieldType.Decimal),
 		Flag:      int32(c.Flag),
 		Elems:     c.Elems,
-		Desc:      c.Desc,
 	}
 	pc.Tp = int32(c.FieldType.Tp)
 	return pc
@@ -349,10 +348,10 @@ func IndexToProto(t *model.TableInfo, idx *model.IndexInfo) *tipb.IndexInfo {
 		TableId: t.ID,
 		IndexId: idx.ID,
 		Unique:  idx.Unique,
+		Desc:    idx.Desc,
 	}
 	cols := make([]*tipb.ColumnInfo, 0, len(idx.Columns)+1)
 	for _, c := range idx.Columns {
-		t.Columns[c.Offset].Desc = c.Desc
 		cols = append(cols, columnToProto(t.Columns[c.Offset]))
 	}
 	if t.PKIsHandle {

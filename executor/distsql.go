@@ -527,7 +527,7 @@ func (e *XSelectIndexExec) indexRowToTableRow(handle int64, indexRow []types.Dat
 		}
 		for j, idxCol := range e.index.Columns {
 			if tblCol.Name.L == idxCol.Name.L {
-				if e.index.Columns[0].Desc {
+				if e.index.Desc {
 					codec.ReverseComparableDatum(&indexRow[j])
 				}
 				tableRow[i] = indexRow[j]

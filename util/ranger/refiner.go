@@ -97,7 +97,7 @@ func BuildIndexRange(sc *variable.StatementContext, tblInfo *model.TableInfo, in
 		}
 	}
 
-	if index.Columns[0].Desc {
+	if index.Desc {
 		var descRanges []*types.IndexRange
 		for _, ran := range ranges {
 			// len(ran.HighVal) should equal to len(ran.LowVal)

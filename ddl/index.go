@@ -38,24 +38,24 @@ const maxPrefixLength = 3072
 
 // Find desc flag in all columns of the index.
 // If one desc flag is true, index desc flag will set true.
-func refineDescIdxColumns(idxColNames []*ast.IndexColName) {
-	hasDesc := false
-
-	for _, ic := range idxColNames {
-		if ic.Desc {
-			hasDesc = true
-			break
-		}
-	}
-
-	if hasDesc {
-		// For each separate single column will have its own index order (asc or desc) in future,
-		// we do not add a desc flag for the whole index.
-		// We use the first column order flag as whole index order flag instead.
-		idxColNames[0].Desc = true
-		log.Infof("The index will turn to desc ordered.")
-	}
-}
+//func refineDescIdxColumns(idxColNames []*ast.IndexColName) {
+//	hasDesc := false
+//
+//	for _, ic := range idxColNames {
+//		if ic.Desc {
+//			hasDesc = true
+//			break
+//		}
+//	}
+//
+//	if hasDesc {
+//		// For each separate single column will have its own index order (asc or desc) in future,
+//		// we do not add a desc flag for the whole index.
+//		// We use the first column order flag as whole index order flag instead.
+//		idxColNames[0].Desc = true
+//		log.Infof("The index will turn to desc ordered.")
+//	}
+//}
 
 func buildIndexColumns(columns []*model.ColumnInfo, idxColNames []*ast.IndexColName) ([]*model.IndexColumn, error) {
 	// Build offsets.
@@ -65,7 +65,7 @@ func buildIndexColumns(columns []*model.ColumnInfo, idxColNames []*ast.IndexColN
 	sumLength := 0
 
 	// For multi columns indices, if one column marked as desc, all columns in this index will turn to desc order.
-	refineDescIdxColumns(idxColNames)
+	//refineDescIdxColumns(idxColNames)
 
 	for _, ic := range idxColNames {
 		col := findCol(columns, ic.Column.Name.O)
@@ -155,11 +155,20 @@ func buildIndexInfo(tblInfo *model.TableInfo, indexName model.CIStr, idxColNames
 		return nil, errors.Trace(err)
 	}
 
+	descIndex := false
+	for _, col := range idxColNames {
+		if col.Desc {
+			descIndex = true
+			break
+		}
+	}
+
 	// Create index info.
 	idxInfo := &model.IndexInfo{
 		Name:    indexName,
 		Columns: idxColumns,
 		State:   state,
+		Desc:    descIndex,
 	}
 	return idxInfo, nil
 }
