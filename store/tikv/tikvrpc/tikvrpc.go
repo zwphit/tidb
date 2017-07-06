@@ -28,6 +28,7 @@ type CmdType uint16
 const (
 	CmdGet CmdType = 1 + iota
 	CmdScan
+	CmdImport
 	CmdPrewrite
 	CmdCommit
 	CmdCleanup
@@ -51,6 +52,7 @@ type Request struct {
 	Get           *kvrpcpb.GetRequest
 	Scan          *kvrpcpb.ScanRequest
 	Prewrite      *kvrpcpb.PrewriteRequest
+	Import        *kvrpcpb.ImportRequest
 	Commit        *kvrpcpb.CommitRequest
 	Cleanup       *kvrpcpb.CleanupRequest
 	BatchGet      *kvrpcpb.BatchGetRequest
@@ -74,6 +76,8 @@ func (req *Request) GetContext() (*kvrpcpb.Context, error) {
 		c = req.Scan.GetContext()
 	case CmdPrewrite:
 		c = req.Prewrite.GetContext()
+	case CmdImport:
+		c = req.Import.GetContext()
 	case CmdCommit:
 		c = req.Commit.GetContext()
 	case CmdCleanup:
@@ -108,6 +112,7 @@ type Response struct {
 	Get           *kvrpcpb.GetResponse
 	Scan          *kvrpcpb.ScanResponse
 	Prewrite      *kvrpcpb.PrewriteResponse
+	Import        *kvrpcpb.ImportResponse
 	Commit        *kvrpcpb.CommitResponse
 	Cleanup       *kvrpcpb.CleanupResponse
 	BatchGet      *kvrpcpb.BatchGetResponse
@@ -131,6 +136,8 @@ func SetContext(req *Request, ctx *kvrpcpb.Context) error {
 		req.Scan.Context = ctx
 	case CmdPrewrite:
 		req.Prewrite.Context = ctx
+	case CmdImport:
+		req.Import.Context = ctx
 	case CmdCommit:
 		req.Commit.Context = ctx
 	case CmdCleanup:
@@ -175,6 +182,10 @@ func GenRegionErrorResp(req *Request, e *errorpb.Error) (*Response, error) {
 		}
 	case CmdPrewrite:
 		resp.Prewrite = &kvrpcpb.PrewriteResponse{
+			RegionError: e,
+		}
+	case CmdImport:
+		resp.Import = &kvrpcpb.ImportResponse{
 			RegionError: e,
 		}
 	case CmdCommit:
@@ -237,6 +248,8 @@ func (resp *Response) GetRegionError() (*errorpb.Error, error) {
 		e = resp.Scan.GetRegionError()
 	case CmdPrewrite:
 		e = resp.Prewrite.GetRegionError()
+	case CmdImport:
+		e = resp.Import.GetRegionError()
 	case CmdCommit:
 		e = resp.Commit.GetRegionError()
 	case CmdCleanup:

@@ -208,6 +208,13 @@ func (c *rpcClient) callRPC(ctx goctx.Context, client tikvpb.TikvClient, req *ti
 		}
 		resp.Prewrite = r
 		return resp, nil
+	case tikvrpc.CmdImport:
+		r, err := client.KvImport(ctx, req.Import)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		resp.Import = r
+		return resp, nil
 	case tikvrpc.CmdCommit:
 		r, err := client.KvCommit(ctx, req.Commit)
 		if err != nil {

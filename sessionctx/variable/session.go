@@ -183,6 +183,9 @@ type SessionVars struct {
 	// SkipConstraintCheck is true when importing data.
 	SkipConstraintCheck bool
 
+	// OnePCImport is true when import data
+	OnePCImport bool
+
 	// SkipUTF8Check check on input value.
 	SkipUTF8Check bool
 

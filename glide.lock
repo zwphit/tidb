@@ -114,7 +114,7 @@ imports:
   - leveldb/table
   - leveldb/util
 - name: github.com/pingcap/kvproto
-  version: 1f7ed87f47f601fc2c3c08c0698f33f0896bb43e
+  version: f29e4d83d0e88e763d97577e74563c86ece8b986
   subpackages:
   - pkg/coprocessor
   - pkg/eraftpb

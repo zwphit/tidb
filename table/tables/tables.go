@@ -319,6 +319,11 @@ func (t *Table) AddRecord(ctx context.Context, r []types.Datum) (recordID int64,
 		txn.SetOption(kv.SkipCheckForWrite, true)
 	}
 
+	onePcImport := ctx.GetSessionVars().OnePCImport
+	if onePcImport {
+		txn.SetOption(kv.OnePCImport, true)
+	}
+
 	bs := kv.NewBufferStore(txn)
 	// Insert new entries into indices.
 	h, err := t.addIndices(ctx, recordID, r, bs)

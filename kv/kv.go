@@ -32,6 +32,8 @@ const (
 	BinlogInfo
 	// Skip existing check when "prewrite".
 	SkipCheckForWrite
+	// OnePCImport use 1 pc in transaction when loading data
+	OnePCImport
 	// SchemaLeaseChecker is used for schema lease check.
 	SchemaLeaseChecker
 	// IsolationLevel sets isolation level for current transaction. The default level is SI.
