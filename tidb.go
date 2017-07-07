@@ -105,7 +105,7 @@ var (
 	statsLease = 1 * time.Second
 
 	// The maximum number of retries to recover from retryable errors.
-	commitRetryLimit = 10
+	commitRetryLimit = 50
 )
 
 // SetSchemaLease changes the default schema lease time for DDL.
