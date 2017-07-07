@@ -206,7 +206,7 @@ func (c *twoPhaseCommitter) doActionOnKeys(bo *Backoffer, action twoPhaseCommitA
 	}
 
 	firstIsPrimary := bytes.Equal(keys[0], c.primary())
-	if firstIsPrimary && (action == actionCommit || action == actionCleanup) {
+	if firstIsPrimary {
 		// primary should be committed/cleanup first
 		err = c.doActionOnBatches(bo, action, batches[:1])
 		if err != nil {
