@@ -52,6 +52,9 @@ type Table struct {
 	indexPrefix     kv.Key
 	alloc           autoid.Allocator
 	meta            *model.TableInfo
+
+	// writableColumnOffsets holds offsets of writable columns.
+	writableColumnOffsets []int
 }
 
 // MockTableFromMeta only serves for test.
@@ -152,12 +155,14 @@ func (t *Table) WritableCols() []*table.Column {
 	}
 
 	t.writableColumns = make([]*table.Column, 0, len(t.Columns))
+	t.writableColumnOffsets = make([]int, 0, len(t.Columns))
 	for _, col := range t.Columns {
 		if col.State == model.StateDeleteOnly || col.State == model.StateDeleteReorganization {
 			continue
 		}
 
 		t.writableColumns = append(t.writableColumns, col)
+		t.writableColumnOffsets = append(t.writableColumnOffsets, col.Offset)
 	}
 
 	return t.writableColumns
@@ -183,24 +188,46 @@ func (t *Table) FirstKey() kv.Key {
 	return t.RecordKey(0)
 }
 
+// TODO: comment it.
+func (t *Table) remapDataFromWritable(data []types.Datum) []types.Datum {
+	if len(t.Cols()) != len(t.WritableCols()) {
+		var dataFull = make([]types.Datum, 0, len(t.Cols()))
+		for i := 0; i < len(t.WritableCols()); i++ {
+			fullIdx := t.writableColumnOffsets[i]
+			dataFull[fullIdx] = data[i]
+		}
+		data = dataFull
+	}
+	return data
+}
+
 // UpdateRecord implements table.Table UpdateRecord interface.
-func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData []types.Datum, newData []types.Datum, changed []bool) (err error) {
+func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData []types.Datum, newData []types.Datum, touched map[int]bool) (err error) {
+	oldData = t.remapDataFromWritable(oldData)
+	newData = t.remapDataFromWritable(newData)
+
+	realTouched = make(map[int]bool, len(t.Cols()))
+	for k, v := range touched {
+		realIdx := t.writableColumnOffsets[k]
+		realTouched[realIdx] = v
+	}
+
 	txn := ctx.Txn()
 	bs := kv.NewBufferStore(txn)
 
 	// rebuild index
-	if err = t.rebuildIndices(bs, h, changed, oldData, newData); err != nil {
+	if err = t.rebuildIndices(bs, h, realTouched, oldData, newData); err != nil {
 		return errors.Trace(err)
 	}
 
 	row := make([]types.Datum, 0, len(newData))
 	colIDs := make([]int64, 0, len(newData))
-	for i, col := range t.WritableCols() {
+	for _, col := range t.WritableCols() {
 		var value types.Datum
-		if col.State != model.StatePublic && newData[i].IsNull() {
+		if col.State != model.StatePublic && newData[col.Offset].IsNull() {
 			value, err = table.GetColDefaultValue(ctx, col.ToInfo())
-			if err1 != nil {
-				return errors.Trace(err1)
+			if err != nil {
+				return errors.Trace(err)
 			}
 		} else {
 			value = newData[col.Offset]
@@ -256,7 +283,7 @@ func (t *Table) composeNewData(touched map[int]bool, newData []types.Datum, oldD
 	return
 }
 
-func (t *Table) rebuildIndices(rm kv.RetrieverMutator, h int64, changed []bool, oldData []types.Datum, newData []types.Datum) error {
+func (t *Table) rebuildIndices(rm kv.RetrieverMutator, h int64, touched map[int]bool, oldData []types.Datum, newData []types.Datum) error {
 	for _, idx := range t.Indices() {
 		idxTouched := false
 		for _, ic := range idx.Meta().Columns {

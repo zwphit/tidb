@@ -120,7 +120,7 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 		_, err = t.AddRecord(ctx, newData)
 	} else {
 		// Update record to new value and update index.
-		err = t.UpdateRecord(ctx, h, oldData, newData, assignFlag)
+		err = t.UpdateRecord(ctx, h, oldData, newData, nil) // TODO fix
 	}
 	if err != nil {
 		return false, errors.Trace(err)
