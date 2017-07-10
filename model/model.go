@@ -165,7 +165,8 @@ type IndexColumn struct {
 	// Length of prefix when using column prefix
 	// for indexing;
 	// UnspecifedLength if not using prefix indexing
-	Length int `json:"length"`
+	Length int  `json:"length"`
+	Desc   bool `json:"desc"` // Index order: false(asc), true(desc)
 }
 
 // Clone clones IndexColumn.
@@ -207,6 +208,7 @@ type IndexInfo struct {
 	State   SchemaState    `json:"state"`
 	Comment string         `json:"comment"`    // Comment
 	Tp      IndexType      `json:"index_type"` // Index type: Btree or Hash
+	Desc    bool           `json:"desc"`       // Index order: asc(false), desc(true)
 }
 
 // Clone clones IndexInfo.

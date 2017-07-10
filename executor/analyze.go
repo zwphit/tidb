@@ -185,7 +185,7 @@ func (e *AnalyzeExec) analyzeColumns(task *analyzeTask) analyzeResult {
 }
 
 func (e *AnalyzeExec) analyzeIndex(task *analyzeTask) analyzeResult {
-	count, hg, err := statistics.BuildIndex(e.ctx, defaultBucketCount, task.indexInfo.ID, &recordSet{executor: task.src})
+	count, hg, err := statistics.BuildIndex(e.ctx, defaultBucketCount, task.indexInfo.ID, &recordSet{executor: task.src}, task.indexInfo)
 	return analyzeResult{tableID: task.tableInfo.ID, hist: []*statistics.Histogram{hg}, count: count, isIndex: 1, err: err}
 }
 

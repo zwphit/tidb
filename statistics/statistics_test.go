@@ -165,7 +165,7 @@ func (s *testStatisticsSuite) TestBuild(c *C) {
 	c.Check(err, IsNil)
 	c.Check(int(count), Equals, 9)
 
-	tblCount, col, err := BuildIndex(ctx, bucketCount, 1, ast.RecordSet(s.rc))
+	tblCount, col, err := BuildIndex(ctx, bucketCount, 1, ast.RecordSet(s.rc), nil)
 	c.Check(err, IsNil)
 	c.Check(int(tblCount), Equals, 100000)
 	count, err = col.equalRowCount(sc, encodeKey(types.NewIntDatum(10000)))

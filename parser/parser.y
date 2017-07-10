@@ -1581,7 +1581,7 @@ IndexColName:
 	ColumnName OptFieldLen Order
 	{
 		//Order is parsed but just ignored as MySQL did
-		$$ = &ast.IndexColName{Column: $1.(*ast.ColumnName), Length: $2.(int)}
+		$$ = &ast.IndexColName{Column: $1.(*ast.ColumnName), Length: $2.(int), Desc: $3.(bool)}
 	}
 
 IndexColNameList:

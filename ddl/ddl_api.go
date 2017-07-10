@@ -266,6 +266,7 @@ func columnDefToCol(ctx context.Context, offset int, colDef *ast.ColumnDef) (*ta
 			{
 				Column: colDef.Name,
 				Length: len,
+				Desc:   false,
 			},
 		}
 

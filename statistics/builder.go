@@ -17,21 +17,27 @@ import (
 	"github.com/juju/errors"
 	"github.com/pingcap/tidb/ast"
 	"github.com/pingcap/tidb/context"
+	"github.com/pingcap/tidb/model"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/types"
 )
 
 // BuildPK builds histogram for pk.
 func BuildPK(ctx context.Context, numBuckets, id int64, records ast.RecordSet) (int64, *Histogram, error) {
-	return build4SortedColumn(ctx, numBuckets, id, records, true)
+	return build4SortedColumn(ctx, numBuckets, id, records, true, nil)
 }
 
 // BuildIndex builds histogram for index.
-func BuildIndex(ctx context.Context, numBuckets, id int64, records ast.RecordSet) (int64, *Histogram, error) {
-	return build4SortedColumn(ctx, numBuckets, id, records, false)
+func BuildIndex(ctx context.Context, numBuckets, id int64, records ast.RecordSet, idx *model.IndexInfo) (int64, *Histogram, error) {
+	return build4SortedColumn(ctx, numBuckets, id, records, false, idx)
 }
 
-func build4SortedColumn(ctx context.Context, numBuckets, id int64, records ast.RecordSet, isPK bool) (int64, *Histogram, error) {
+func build4SortedColumn(ctx context.Context, numBuckets, id int64, records ast.RecordSet, isPK bool, idx *model.IndexInfo) (int64, *Histogram, error) {
+	descIndex := false
+	if idx != nil {
+		id = idx.ID
+		descIndex = idx.Desc
+	}
 	hg := &Histogram{
 		ID:      id,
 		NDV:     0,
@@ -52,7 +58,13 @@ func build4SortedColumn(ctx context.Context, numBuckets, id int64, records ast.R
 		if isPK {
 			data = row.Data[0]
 		} else {
-			bytes, err := codec.EncodeKey(nil, row.Data...)
+			var bytes []byte
+			var err error
+			if descIndex {
+				bytes, err = codec.EncodeDescKey(nil, row.Data...)
+			} else {
+				bytes, err = codec.EncodeKey(nil, row.Data...)
+			}
 			if err != nil {
 				return 0, nil, errors.Trace(err)
 			}

@@ -115,6 +115,7 @@ func buildIndexColumns(columns []*model.ColumnInfo, idxColNames []*ast.IndexColN
 			Name:   col.Name,
 			Offset: col.Offset,
 			Length: ic.Length,
+			Desc:   ic.Desc,
 		})
 	}
 
@@ -127,11 +128,20 @@ func buildIndexInfo(tblInfo *model.TableInfo, indexName model.CIStr, idxColNames
 		return nil, errors.Trace(err)
 	}
 
+	descIndex := false
+	for _, col := range idxColNames {
+		if col.Desc {
+			descIndex = true
+			break
+		}
+	}
+
 	// Create index info.
 	idxInfo := &model.IndexInfo{
 		Name:    indexName,
 		Columns: idxColumns,
 		State:   state,
+		Desc:    descIndex,
 	}
 	return idxInfo, nil
 }

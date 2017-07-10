@@ -348,6 +348,7 @@ func IndexToProto(t *model.TableInfo, idx *model.IndexInfo) *tipb.IndexInfo {
 		TableId: t.ID,
 		IndexId: idx.ID,
 		Unique:  idx.Unique,
+		Desc:    idx.Desc,
 	}
 	cols := make([]*tipb.ColumnInfo, 0, len(idx.Columns)+1)
 	for _, c := range idx.Columns {
