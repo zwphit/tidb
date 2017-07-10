@@ -188,10 +188,11 @@ func (t *Table) FirstKey() kv.Key {
 	return t.RecordKey(0)
 }
 
-// TODO: comment it.
+// remapDataFromWritable maps the input data with writable columns
+// as schema to a new Datum slice, with all columns as schema.
 func (t *Table) remapDataFromWritable(data []types.Datum) []types.Datum {
-	if len(t.Cols()) != len(t.WritableCols()) {
-		var dataFull = make([]types.Datum, 0, len(t.Cols()))
+	if len(t.Columns) != len(t.WritableCols()) {
+		var dataFull = make([]types.Datum, len(t.Columns))
 		for i := 0; i < len(t.WritableCols()); i++ {
 			fullIdx := t.writableColumnOffsets[i]
 			dataFull[fullIdx] = data[i]
@@ -201,22 +202,32 @@ func (t *Table) remapDataFromWritable(data []types.Datum) []types.Datum {
 	return data
 }
 
-// UpdateRecord implements table.Table UpdateRecord interface.
-func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData []types.Datum, newData []types.Datum, touched map[int]bool) (err error) {
-	oldData = t.remapDataFromWritable(oldData)
-	newData = t.remapDataFromWritable(newData)
-
-	realTouched = make(map[int]bool, len(t.Cols()))
-	for k, v := range touched {
-		realIdx := t.writableColumnOffsets[k]
-		realTouched[realIdx] = v
+// remapTouchedFromWritable is similar to remapDataFromWritable.
+func (t *Table) remapTouchedFromWritable(touched []bool) []bool {
+	if len(t.Columns) != len(t.WritableCols()) {
+		var touchedFull = make([]bool, len(t.Columns))
+		for i := 0; i < len(t.WritableCols()); i++ {
+			fullIdx := t.writableColumnOffsets[i]
+			touchedFull[fullIdx] = touched[i]
+		}
+		touched = touchedFull
 	}
+	return touched
+}
 
+// UpdateRecord implements table.Table UpdateRecord interface.
+func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, touched []bool) error {
+	debugTable(t)
 	txn := ctx.Txn()
 	bs := kv.NewBufferStore(txn)
 
+	oldData = t.remapDataFromWritable(oldData)
+	newData = t.remapDataFromWritable(newData)
+	touched = t.remapTouchedFromWritable(touched)
+
 	// rebuild index
-	if err = t.rebuildIndices(bs, h, realTouched, oldData, newData); err != nil {
+	err := t.rebuildIndices(bs, h, touched, oldData, newData)
+	if err != nil {
 		return errors.Trace(err)
 	}
 
@@ -283,7 +294,7 @@ func (t *Table) composeNewData(touched map[int]bool, newData []types.Datum, oldD
 	return
 }
 
-func (t *Table) rebuildIndices(rm kv.RetrieverMutator, h int64, touched map[int]bool, oldData []types.Datum, newData []types.Datum) error {
+func (t *Table) rebuildIndices(rm kv.RetrieverMutator, h int64, touched []bool, oldData []types.Datum, newData []types.Datum) error {
 	for _, idx := range t.Indices() {
 		idxTouched := false
 		for _, ic := range idx.Meta().Columns {
@@ -295,22 +306,19 @@ func (t *Table) rebuildIndices(rm kv.RetrieverMutator, h int64, touched map[int]
 		if !idxTouched {
 			continue
 		}
-
 		oldVs, err := idx.FetchValues(oldData)
 		if err != nil {
 			return errors.Trace(err)
 		}
-
 		if t.removeRowIndex(rm, h, oldVs, idx); err != nil {
 			return errors.Trace(err)
 		}
-
 		newVs, err := idx.FetchValues(newData)
 		if err != nil {
 			return errors.Trace(err)
 		}
-
-		if err := t.buildIndexForRow(rm, h, newVs, idx); err != nil {
+		err = t.buildIndexForRow(rm, h, newVs, idx)
+		if err != nil {
 			return errors.Trace(err)
 		}
 	}

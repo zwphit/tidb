@@ -47,29 +47,32 @@ func fillUpdateNewData(ctx context.Context, t table.Table, oldData, newData []ty
 // 3. cast changed fields with respective columns;
 // 4. calculate it updates the record really or not;
 // 5. check not-null constraints.
-func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, assignFlag []bool, t table.Table, onDuplicateUpdate bool) (bool, error) {
+func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, touched []bool, t table.Table) (bool, error) {
 	var cols = t.WritableCols()
 	var sc = ctx.GetSessionVars().StmtCtx
 
-	var touched = make(map[int]bool, len(t.WritableCols()))
 	var changed = false
 	var handleChanged = false
-	for i := range assignFlag {
+	for i := range touched {
 		col := cols[i]
-		if !assignFlag[i] {
+		if !touched[i] {
 			if mysql.HasOnUpdateNowFlag(col.Flag) {
-				newData[i], err = expression.GetTimeValue(ctx, expression.CurrentTimestamp, col.Tp, col.Decimal)
+				v, err := expression.GetTimeValue(ctx, expression.CurrentTimestamp, col.Tp, col.Decimal)
 				if err != nil {
 					return false, errors.Trace(err)
 				}
+				newData[i] = v
+				touched[i] = true
 			} else {
 				continue
 			}
 		}
-		newData[i], err = table.CastValue(ctx, newData[i], col.ToInfo())
+		v, err := table.CastValue(ctx, newData[i], col.ToInfo())
 		if err != nil {
 			return false, errors.Trace(err)
 		}
+		newData[i] = v
+
 		if mysql.HasAutoIncrementFlag(col.Flag) {
 			if newData[i].IsNull() {
 				return false, errors.Errorf("Column '%v' cannot be null", col.Name.O)
@@ -92,7 +95,9 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 			}
 		}
 	}
-	if err := table.CheckNotNull(cols, newData); err != nil {
+
+	err := table.CheckNotNull(cols, newData)
+	if err != nil {
 		return false, errors.Trace(err)
 	}
 
@@ -103,6 +108,7 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 		}
 		return false, nil
 	}
+
 	if handleChanged {
 		err = t.RemoveRecord(ctx, h, oldData)
 		if err != nil {
@@ -111,7 +117,7 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 		_, err = t.AddRecord(ctx, newData)
 	} else {
 		// Update record to new value and update index.
-		err = t.UpdateRecord(ctx, h, oldData, newData, touched) // TODO fix
+		err = t.UpdateRecord(ctx, h, oldData, newData, touched)
 	}
 	if err != nil {
 		return false, errors.Trace(err)
@@ -122,12 +128,6 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 	dirtyDB.deleteRow(tid, h)
 	dirtyDB.addRow(tid, h, newData)
 
-	// Record affected rows.
-	if !onDuplicateUpdate {
-		sc.AddAffectedRows(1)
-	} else {
-		sc.AddAffectedRows(2)
-	}
 	ctx.GetSessionVars().TxnCtx.UpdateDeltaForTable(t.Meta().ID, 0, 1)
 	return true, nil
 }
@@ -973,8 +973,12 @@ func (e *InsertExec) onDuplicateUpdate(row []types.Datum, h int64, cols []*expre
 		newData[col.Col.Index] = val
 		assignFlag[col.Col.Index] = true
 	}
-	if _, err = updateRecord(e.ctx, h, data, newData, assignFlag, e.Table, true); err != nil {
+	changed, err := updateRecord(e.ctx, h, data, newData, assignFlag, e.Table)
+	if err != nil {
 		return errors.Trace(err)
+	}
+	if changed {
+		e.ctx.GetSessionVars().StmtCtx.AddAffectedRows(1)
 	}
 	return nil
 }
@@ -1153,11 +1157,12 @@ func (e *UpdateExec) Next() (*Row, error) {
 			continue
 		}
 		// Update row
-		changed, err1 := updateRecord(e.ctx, handle, oldData, newTableData, flags, tbl, false)
+		changed, err1 := updateRecord(e.ctx, handle, oldData, newTableData, flags, tbl)
 		if err1 != nil {
 			return nil, errors.Trace(err1)
 		}
 		if changed {
+			e.ctx.GetSessionVars().StmtCtx.AddAffectedRows(1)
 			e.updatedRowKeys[tbl][handle] = struct{}{}
 		}
 	}
