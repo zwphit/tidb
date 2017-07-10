@@ -217,6 +217,10 @@ func EncodeValue(b []byte, v ...types.Datum) ([]byte, error) {
 
 // Revert asc encode to desc encode bytes
 func ascEncodeToDescEncode(b []byte) []byte {
+	// Add this logical for compatible with maxFlag = 250
+	//if b[0] == maxFlag {
+	//	return b
+	//}
 	if b[0]&descDecode != descDecode {
 		var asc []byte
 		//log.Infof("[yusp] a2d before b %d", b)
@@ -238,6 +242,10 @@ func ascEncodeToDescEncode(b []byte) []byte {
 
 // Revert desc encode to asc encode bytes
 func descEncodeToAscEncode(b []byte) []byte {
+	// Add this logical for compatible with maxFlag = 250
+	//if b[0] == maxFlag {
+	//	return b
+	//}
 	// Reverse bytes to normal encoding style
 	if b[0]&descDecode == descDecode {
 		var desc []byte

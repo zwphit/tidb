@@ -732,6 +732,95 @@ func (s *testSuite) TestIndexReverseOrder(c *C) {
 	result.Check(testkit.Rows("0 2", "0 1", "0 0", "1 2", "1 1", "1 0", "2 2", "2 1", "2 0"))
 }
 
+func (s *testSuite) TestDescIndexOrderBy(c *C) {
+	defer func() {
+		s.cleanEnv(c)
+		testleak.AfterTest(c)()
+	}()
+	tk := testkit.NewTestKit(c, s.store)
+	tk.MustExec("use test")
+
+	// Create desc index on empty table.
+	tk.MustExec("create table if not exists desc_index_table (a int, b int, c int, index desc_idx (a desc, b, c))")
+	tk.MustExec("insert into desc_index_table values (-1, -1, -1), (0, 0, 0), (1, 1, 1), (2, 2, 2)")
+	r := tk.MustQuery("select a, b from desc_index_table")
+	r.Check(testkit.Rows("-1 -1", "0 0", "1 1", "2 2"))
+	r = tk.MustQuery("select a, b from desc_index_table order by b desc")
+	r.Check(testkit.Rows("2 2", "1 1", "0 0", "-1 -1"))
+	r = tk.MustQuery("select a, b from desc_index_table order by b")
+	r.Check(testkit.Rows("-1 -1", "0 0", "1 1", "2 2"))
+	r = tk.MustQuery("select a, b from desc_index_table where b > 0 and b < 4 order by b desc")
+	r.Check(testkit.Rows("2 2", "1 1"))
+	r = tk.MustQuery("select a, b from desc_index_table where b > 0 order by b desc")
+	r.Check(testkit.Rows("2 2", "1 1"))
+	r = tk.MustQuery("select a, b from desc_index_table where b < 0 order by b desc")
+	r.Check(testkit.Rows("-1 -1"))
+	r = tk.MustQuery("select a, b from desc_index_table where b > -2 and b < 0 or b > 1 and b < 3 order by b desc")
+	r.Check(testkit.Rows("2 2", "-1 -1"))
+	r = tk.MustQuery("select a, b from desc_index_table where a > -2 and a < 0 or b > 1 and b < 3 order by b desc")
+	r.Check(testkit.Rows("2 2", "-1 -1"))
+	r = tk.MustQuery("select a, b from desc_index_table where a > -2 and b < 3 order by b desc")
+	r.Check(testkit.Rows("2 2", "1 1", "0 0", "-1 -1"))
+	r = tk.MustQuery("select a from desc_index_table where b > -2 and c < 3 order by c desc")
+	r.Check(testkit.Rows("2", "1", "0", "-1"))
+	tk.MustExec("drop table desc_index_table")
+
+	// Create desc index on non-empty table.
+	tk.MustExec("create table if not exists desc_index_table (a int, b int)")
+	tk.MustExec("insert into desc_index_table values (1, 1), (2, 2)")
+	tk.MustExec("create index desc_index on desc_index_table (a, b desc)")
+	r = tk.MustQuery("select a, b from desc_index_table order by b desc")
+	r.Check(testkit.Rows("2 2", "1 1"))
+	r = tk.MustQuery("select a, b from desc_index_table order by b")
+	r.Check(testkit.Rows("1 1", "2 2"))
+
+	// Some ddl test here.
+	tk.MustExec("drop index desc_index on desc_index_table")
+	tk.MustExec("alter table desc_index_table add index desc_index (a, b desc)")
+	r = tk.MustQuery("select a, b from desc_index_table order by b desc")
+	r.Check(testkit.Rows("2 2", "1 1"))
+	tk.MustExec("drop table desc_index_table")
+
+	// Create multi-column in different types on desc index of non-empty table.
+	tk.MustExec(`create table if not exists desc_index_table (
+	c_int int,
+	c_bigint bigint,
+	c_float float,
+	c_double double,
+	c_decimal decimal(4, 2),
+	c_datetime datetime,
+	c_char char,
+	c_varchar varchar(20),
+	c_text text,
+	c_binary binary,
+	c_varbinary varbinary(20),
+	c_blob blob,
+	c_set set('a', 'b', 'c'),
+	c_enum enum('a', 'b', 'c'))`)
+	tk.MustExec(`insert into desc_index_table values
+	(1, 1, 1, 1, 1.1, '2000-01-01 00:00:00', 'a', 'abcdef', 'abcdef', 'abcdef', 'abcdef', 'abcdef', 'a', 'a'),
+	(2, 2, 2, 2, 2.2, '2200-02-02 00:10:00', 'b', 'abedef', 'abedef', 'abedef', 'abedef', 'abedef', 'b', 'b')
+	`)
+	tk.MustExec(`create index desc_index on desc_index_table (
+	c_int,
+	c_bigint,
+	c_float desc,
+	c_double,
+	c_decimal desc,
+	c_datetime,
+	c_char,
+	c_varchar,
+	c_binary,
+	c_varbinary,
+	c_set,
+	c_enum)`)
+	r = tk.MustQuery("select c_int, c_bigint, c_float from desc_index_table order by c_datetime desc")
+	r.Check(testkit.Rows("2 2 2", "1 1 1"))
+	r = tk.MustQuery("select c_int, c_bigint, c_float from desc_index_table order by c_binary")
+	r.Check(testkit.Rows("1 1 1", "2 2 2"))
+	tk.MustExec("drop table desc_index_table")
+}
+
 func (s *testSuite) TestTableReverseOrder(c *C) {
 	defer func() {
 		s.cleanEnv(c)

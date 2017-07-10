@@ -143,65 +143,6 @@ func (s *testSuite) TestCreateDropIndex(c *C) {
 	tk.MustExec("drop table drop_test")
 }
 
-func (s *testSuite) TestDescIndex(c *C) {
-	defer testleak.AfterTest(c)()
-	tk := testkit.NewTestKit(c, s.store)
-	tk.MustExec("use test")
-
-	// Create desc index on empty table.
-	tk.MustExec("create table if not exists desc_index_table (a int, b int, index desc_idx (b desc))")
-	tk.MustExec("insert into desc_index_table values (1, 1), (2, 2)")
-	tk.MustQuery("select a, b from desc_index_table order by b desc").Check(testkit.Rows("2, 2", "1, 1"))
-	tk.MustQuery("select a, b from desc_index_table order by b").Check(testkit.Rows("1, 1", "2, 2"))
-	tk.MustExec("drop table desc_index_table")
-
-	// Create desc index on non-empty table.
-	tk.MustExec("create table if not exists desc_index_table (a int, b int)")
-	tk.MustExec("insert into desc_index_table values (1, 1), (2, 2)")
-	tk.MustExec("create index desc_index on desc_index_table (b desc)")
-	tk.MustQuery("select a, b from desc_index_table order by b desc").Check(testkit.Rows("2, 2", "1, 1"))
-	tk.MustQuery("select a, b from desc_index_table order by b").Check(testkit.Rows("1, 1", "2, 2"))
-	tk.MustExec("drop table desc_index_table")
-
-	// Create multi-column desc index on non-empty table.
-	tk.MustExec(`create table if not exists desc_index_table (
-	c_int int,
-	c_bigint bigint,
-	c_float float,
-	c_double double,
-	c_decimal decimal,
-	c_datetime datetime,
-	c_time time,
-	c_timestamp timestamp,
-	c_char char,
-	c_varchar varchar(20),
-	c_text text,
-	c_binary binary,
-	c_varbinary varbinary(20),
-	c_blob blob,
-	c_set set('a', 'b', 'c'),
-	c_enum enum('a', 'b', 'c'))`)
-	tk.MustExec("insert into desc_index_table values (1, 1, 1), (2, 2, 2)")
-	tk.MustExec(`create index desc_index on desc_index_table (
-	c_int,
-	c_bigint,
-	c_float desc,
-	c_double,
-	c_decimal desc,
-	c_datetime,
-	c_time,
-	c_timestamp,
-	c_char,
-	c_varchar,
-	c_binary,
-	c_varbinary,
-	c_set,
-	c_enum)`)
-	tk.MustQuery("select a, b from desc_index_table order by b desc").Check(testkit.Rows("2, 2, 2", "1, 1, 1"))
-	tk.MustQuery("select a, b from desc_index_table order by b").Check(testkit.Rows("1, 1, 1", "2, 2, 2"))
-	tk.MustExec("drop table desc_index_table")
-}
-
 func (s *testSuite) TestAlterTableAddColumn(c *C) {
 	defer testleak.AfterTest(c)()
 	tk := testkit.NewTestKit(c, s.store)
