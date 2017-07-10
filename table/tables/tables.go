@@ -184,50 +184,43 @@ func (t *Table) FirstKey() kv.Key {
 }
 
 // UpdateRecord implements table.Table UpdateRecord interface.
-func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData []types.Datum, newData []types.Datum, touched map[int]bool) error {
-	// We should check whether this table has on update column which state is write only.
-	currentData := make([]types.Datum, len(t.WritableCols()))
-	copy(currentData, newData)
+func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData []types.Datum, newData []types.Datum, changed []bool) (err error) {
+	txn := ctx.Txn()
+	bs := kv.NewBufferStore(txn)
 
-	// If they are not set, and other data are changed, they will be updated by current timestamp too.
-	err := t.setOnUpdateData(ctx, touched, currentData)
-	if err != nil {
+	// rebuild index
+	if err = t.rebuildIndices(bs, h, changed, oldData, newData); err != nil {
 		return errors.Trace(err)
 	}
 
-	txn := ctx.Txn()
-	bs := kv.NewBufferStore(ctx.Txn())
-
-	// Compose new row
-	t.composeNewData(touched, currentData, oldData)
-	colIDs := make([]int64, 0, len(t.WritableCols()))
+	row := make([]types.Datum, 0, len(newData))
+	colIDs := make([]int64, 0, len(newData))
 	for i, col := range t.WritableCols() {
-		if col.State != model.StatePublic && currentData[i].IsNull() {
-			defaultVal, err1 := table.GetColDefaultValue(ctx, col.ToInfo())
+		var value types.Datum
+		if col.State != model.StatePublic && newData[i].IsNull() {
+			value, err = table.GetColDefaultValue(ctx, col.ToInfo())
 			if err1 != nil {
 				return errors.Trace(err1)
 			}
-			currentData[i] = defaultVal
+		} else {
+			value = newData[col.Offset]
+		}
+		if t.CanSkip(col, value) {
+			continue
 		}
 		colIDs = append(colIDs, col.ID)
+		row = append(row, value)
 	}
-	// Set new row data into KV.
 	key := t.RecordKey(h)
-	value, err := tablecodec.EncodeRow(currentData, colIDs, ctx.GetSessionVars().GetTimeZone())
+	value, err := tablecodec.EncodeRow(row, colIDs, ctx.GetSessionVars().GetTimeZone())
 	if err != nil {
 		return errors.Trace(err)
 	}
+
 	if err = bs.Set(key, value); err != nil {
 		return errors.Trace(err)
 	}
-
-	// rebuild index
-	if err = t.rebuildIndices(bs, h, touched, oldData, currentData); err != nil {
-		return errors.Trace(err)
-	}
-
-	err = bs.SaveTo(txn)
-	if err != nil {
+	if err = bs.SaveTo(txn); err != nil {
 		return errors.Trace(err)
 	}
 	if shouldWriteBinlog(ctx) {
@@ -263,7 +256,7 @@ func (t *Table) composeNewData(touched map[int]bool, newData []types.Datum, oldD
 	return
 }
 
-func (t *Table) rebuildIndices(rm kv.RetrieverMutator, h int64, touched map[int]bool, oldData []types.Datum, newData []types.Datum) error {
+func (t *Table) rebuildIndices(rm kv.RetrieverMutator, h int64, changed []bool, oldData []types.Datum, newData []types.Datum) error {
 	for _, idx := range t.Indices() {
 		idxTouched := false
 		for _, ic := range idx.Meta().Columns {
@@ -330,9 +323,6 @@ func (t *Table) AddRecord(ctx context.Context, r []types.Datum) (recordID int64,
 	row := make([]types.Datum, 0, len(r))
 	// Set public and write only column value.
 	for _, col := range t.WritableCols() {
-		if col.IsPKHandleColumn(t.meta) {
-			continue
-		}
 		var value types.Datum
 		if col.State == model.StateWriteOnly || col.State == model.StateWriteReorganization {
 			// if col is in write only or write reorganization state, we must add it with its default value.
@@ -342,10 +332,9 @@ func (t *Table) AddRecord(ctx context.Context, r []types.Datum) (recordID int64,
 			}
 		} else {
 			value = r[col.Offset]
-			if col.DefaultValue == nil && r[col.Offset].IsNull() {
-				// Save storage space by not storing null value.
-				continue
-			}
+		}
+		if t.CanSkip(col, value) {
+			continue
 		}
 		colIDs = append(colIDs, col.ID)
 		row = append(row, value)
@@ -735,6 +724,23 @@ func (t *Table) getMutation(ctx context.Context) *binlog.TableMutation {
 	idx := len(bin.Mutations)
 	bin.Mutations = append(bin.Mutations, binlog.TableMutation{TableId: t.ID})
 	return &bin.Mutations[idx]
+}
+
+// For these cases, we can skip the columns in encode row:
+// 1. the column is included in primary key;
+// 2. the column's default value is null, and the value equals to that;
+// 3. the column is virtual generated.
+func (t *Table) CanSkip(col *table.Column, value types.Datum) bool {
+	if col.IsPKHandleColumn(t.meta) {
+		return true
+	}
+	if col.DefaultValue == nil && value.IsNull() {
+		return true
+	}
+	if len(col.GeneratedExprString) != 0 && !col.GeneratedStored {
+		return true
+	}
+	return false
 }
 
 var (

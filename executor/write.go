@@ -38,22 +38,30 @@ var (
 	_ Executor = &LoadData{}
 )
 
-func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, assignFlag []bool, t table.Table, onDuplicateUpdate bool) (bool, error) {
-	cols := t.WritableCols()
-	touched := make(map[int]bool, len(cols))
-	assignExists := false
-	sc := ctx.GetSessionVars().StmtCtx
-	var newHandle types.Datum
-	for i, hasSetExpr := range assignFlag {
-		if !hasSetExpr {
-			if onDuplicateUpdate {
-				newData[i] = oldData[i]
-			}
-			continue
-		}
+// fillUpdateNewData is similar to fillRowData, with these works:
+// 1. cast changed fields with respective columns;
+// 2. rebase auto increment id if the field is changed;
+// 3. fill values for with on-update fields;
+// 4. check not-null constraints.
+func fillUpdateNewData(ctx context.Context, t table.Table, oldData, newData []types.Datum, changed []bool) (handleChanged bool, err error) {
+	var cols = t.WritableCols()
+	var sc = ctx.GetSessionVars().StmtCtx
+	for i := range changed {
 		col := cols[i]
-		if col.IsPKHandleColumn(t.Meta()) {
-			newHandle = newData[i]
+		if !changed[i] {
+			if mysql.HasOnUpdateNowFlag(col.Flag) {
+				newData[i], err = expression.GetTimeValue(ctx, expression.CurrentTimestamp, col.Tp, col.Decimal)
+				if err != nil {
+					return false, errors.Trace(err)
+				}
+				changed[i] = true
+			} else {
+				continue
+			}
+		}
+		newData[i], err = table.CastValue(ctx, newData[i], col.ToInfo())
+		if err != nil {
+			return false, errors.Trace(err)
 		}
 		if mysql.HasAutoIncrementFlag(col.Flag) {
 			if newData[i].IsNull() {
@@ -65,50 +73,46 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 			}
 			t.RebaseAutoID(val, true)
 		}
-		casted, err := table.CastValue(ctx, newData[i], col.ToInfo())
+		cmp, err := newData[i].CompareDatum(sc, oldData[i])
 		if err != nil {
 			return false, errors.Trace(err)
 		}
-		newData[i] = casted
-		touched[i] = true
-		assignExists = true
+		if cmp != 0 {
+			changed[i] = true
+			if col.IsPKHandleColumn(t.Meta()) {
+				handleChanged = true
+			}
+		} else {
+			changed[i] = false
+		}
 	}
-
-	// If no assign list for this table, no need to update.
-	if !assignExists {
-		return false, nil
-	}
-
 	if err := table.CheckNotNull(cols, newData); err != nil {
 		return false, errors.Trace(err)
 	}
+	return
+}
 
-	// If row is not changed, we should do nothing.
-	rowChanged := false
-	for i := range oldData {
-		if !touched[i] {
-			continue
-		}
-
-		n, err := newData[i].CompareDatum(sc, oldData[i])
-		if err != nil {
-			return false, errors.Trace(err)
-		}
-		if n != 0 {
-			rowChanged = true
+func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, assignFlag []bool, t table.Table, onDuplicateUpdate bool) (bool, error) {
+	var sc = ctx.GetSessionVars().StmtCtx
+	handleChanged, err := fillUpdateNewData(ctx, t, oldData, newData, assignFlag)
+	if err != nil {
+		return false, errors.Trace(err)
+	}
+	var changed = false
+	for _, c := range assignFlag {
+		if c {
+			changed = true
 			break
 		}
 	}
-	if !rowChanged {
+	if !changed {
 		// See https://dev.mysql.com/doc/refman/5.7/en/mysql-real-connect.html  CLIENT_FOUND_ROWS
 		if ctx.GetSessionVars().ClientCapability&mysql.ClientFoundRows > 0 {
 			sc.AddAffectedRows(1)
 		}
 		return false, nil
 	}
-
-	var err error
-	if !newHandle.IsNull() {
+	if handleChanged {
 		err = t.RemoveRecord(ctx, h, oldData)
 		if err != nil {
 			return false, errors.Trace(err)
@@ -116,11 +120,12 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 		_, err = t.AddRecord(ctx, newData)
 	} else {
 		// Update record to new value and update index.
-		err = t.UpdateRecord(ctx, h, oldData, newData, touched)
+		err = t.UpdateRecord(ctx, h, oldData, newData, assignFlag)
 	}
 	if err != nil {
 		return false, errors.Trace(err)
 	}
+
 	dirtyDB := getDirtyDB(ctx)
 	tid := t.Meta().ID
 	dirtyDB.deleteRow(tid, h)
