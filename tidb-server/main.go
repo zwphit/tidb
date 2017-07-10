@@ -173,6 +173,9 @@ func main() {
 
 	pushMetric(*metricsAddr, time.Duration(*metricsInterval)*time.Second)
 
+	// for profile block
+	runtime.SetBlockProfileRate(1)
+
 	log.Error(svr.Run())
 	domain.Close()
 	os.Exit(0)
