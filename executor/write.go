@@ -38,23 +38,30 @@ var (
 	_ Executor = &LoadData{}
 )
 
-// fillUpdateNewData is similar to fillRowData, with these works:
-// 1. cast changed fields with respective columns;
-// 2. rebase auto increment id if the field is changed;
-// 3. fill values for with on-update fields;
-// 4. check not-null constraints.
 func fillUpdateNewData(ctx context.Context, t table.Table, oldData, newData []types.Datum, changed []bool) (handleChanged bool, err error) {
+	return
+}
+
+// 1. fill values into on-update-now fields;
+// 2. rebase auto increment id if the field is changed;
+// 3. cast changed fields with respective columns;
+// 4. calculate it updates the record really or not;
+// 5. check not-null constraints.
+func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, assignFlag []bool, t table.Table, onDuplicateUpdate bool) (bool, error) {
 	var cols = t.WritableCols()
 	var sc = ctx.GetSessionVars().StmtCtx
-	for i := range changed {
+
+	var touched = make(map[int]bool, len(t.WritableCols()))
+	var changed = false
+	var handleChanged = false
+	for i := range assignFlag {
 		col := cols[i]
-		if !changed[i] {
+		if !assignFlag[i] {
 			if mysql.HasOnUpdateNowFlag(col.Flag) {
 				newData[i], err = expression.GetTimeValue(ctx, expression.CurrentTimestamp, col.Tp, col.Decimal)
 				if err != nil {
 					return false, errors.Trace(err)
 				}
-				changed[i] = true
 			} else {
 				continue
 			}
@@ -78,33 +85,17 @@ func fillUpdateNewData(ctx context.Context, t table.Table, oldData, newData []ty
 			return false, errors.Trace(err)
 		}
 		if cmp != 0 {
-			changed[i] = true
+			changed = true
+			touched[i] = true
 			if col.IsPKHandleColumn(t.Meta()) {
 				handleChanged = true
 			}
-		} else {
-			changed[i] = false
 		}
 	}
 	if err := table.CheckNotNull(cols, newData); err != nil {
 		return false, errors.Trace(err)
 	}
-	return
-}
 
-func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, assignFlag []bool, t table.Table, onDuplicateUpdate bool) (bool, error) {
-	var sc = ctx.GetSessionVars().StmtCtx
-	handleChanged, err := fillUpdateNewData(ctx, t, oldData, newData, assignFlag)
-	if err != nil {
-		return false, errors.Trace(err)
-	}
-	var changed = false
-	for _, c := range assignFlag {
-		if c {
-			changed = true
-			break
-		}
-	}
 	if !changed {
 		// See https://dev.mysql.com/doc/refman/5.7/en/mysql-real-connect.html  CLIENT_FOUND_ROWS
 		if ctx.GetSessionVars().ClientCapability&mysql.ClientFoundRows > 0 {
@@ -120,7 +111,7 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 		_, err = t.AddRecord(ctx, newData)
 	} else {
 		// Update record to new value and update index.
-		err = t.UpdateRecord(ctx, h, oldData, newData, nil) // TODO fix
+		err = t.UpdateRecord(ctx, h, oldData, newData, touched) // TODO fix
 	}
 	if err != nil {
 		return false, errors.Trace(err)
@@ -1132,17 +1123,18 @@ func (e *UpdateExec) Next() (*Row, error) {
 		}
 		e.fetched = true
 	}
-
-	assignFlag, err := getUpdateColumns(e.OrderedList, e.SelectExec.Schema().Len())
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
 	if e.cursor >= len(e.rows) {
 		return nil, nil
 	}
 	if e.updatedRowKeys == nil {
 		e.updatedRowKeys = make(map[table.Table]map[int64]struct{})
 	}
+
+	assignFlag, err := getUpdateColumns(e.OrderedList, e.SelectExec.Schema().Len())
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	row := e.rows[e.cursor]
 	newData := e.newRowsData[e.cursor]
 	for _, entry := range row.RowKeys {
@@ -1156,8 +1148,7 @@ func (e *UpdateExec) Next() (*Row, error) {
 		oldData := row.Data[offset:end]
 		newTableData := newData[offset:end]
 		flags := assignFlag[offset:end]
-		_, ok := e.updatedRowKeys[tbl][handle]
-		if ok {
+		if _, ok := e.updatedRowKeys[tbl][handle]; ok {
 			// Each matched row is updated once, even if it matches the conditions multiple times.
 			continue
 		}
