@@ -36,116 +36,129 @@ const (
 	varintFlag       byte = 8
 	uvarintFlag      byte = 9
 	jsonFlag         byte = 10
-	maxFlag          byte = 250
+	maxFlag          byte = 127
+	descDecode       byte = 128
 )
 
 // ReverseComparableDatum reverse datum which could be comparable.
-func ReverseComparableDatum(val *types.Datum) error {
+//func ReverseComparableDatum(val *types.Datum) error {
+//	switch val.Kind() {
+//	case types.KindInt64:
+//		val.SetInt64(^val.GetInt64())
+//	case types.KindUint64:
+//		val.SetUint64(^val.GetUint64())
+//	case types.KindFloat32, types.KindFloat64:
+//		val.SetFloat64(-val.GetFloat64())
+//	case types.KindString:
+//		runes := []rune(val.GetString())
+//		for i, v := range runes {
+//			runes[i] = ^v
+//		}
+//		val.SetString(string(runes))
+//	case types.KindBytes:
+//		bytes := val.GetBytes()
+//		for i, v := range bytes {
+//			bytes[i] = ^v
+//		}
+//		val.SetBytes([]byte(bytes))
+//	case types.KindMysqlTime:
+//		t := val.GetMysqlTime()
+//		v, err := t.ToPackedUint()
+//		if err != nil {
+//			return errors.Trace(err)
+//		}
+//		t.FromPackedUint(^v)
+//		val.SetMysqlTime(t)
+//	case types.KindMysqlDuration:
+//		val.SetMysqlDuration(types.Duration{^val.GetMysqlDuration().Duration, 0})
+//	case types.KindMysqlHex:
+//		h := types.Hex{Value: ^int64(val.GetMysqlHex().ToNumber())}
+//		val.SetMysqlHex(h)
+//	case types.KindMysqlBit:
+//		b := types.Bit{Value: ^uint64(val.GetMysqlBit().ToNumber()), Width: types.MaxBitWidth}
+//		val.SetMysqlBit(b)
+//	case types.KindMysqlEnum:
+//		e := types.Enum{Name: val.GetMysqlEnum().String(), Value: ^uint64(val.GetMysqlEnum().ToNumber())}
+//		val.SetMysqlEnum(e)
+//	case types.KindMysqlSet:
+//		s := types.Set{Name: val.GetMysqlSet().String(), Value: ^uint64(val.GetMysqlSet().ToNumber())}
+//		val.SetMysqlSet(s)
+//	case types.KindMinNotNull:
+//		val.SetKind(types.KindMaxValue)
+//	case types.KindMaxValue:
+//		val.SetKind(types.KindMinNotNull)
+//	default:
+//		return errors.Errorf("type %d is not comparable", val.Kind())
+//	}
+//	return nil
+//}
+
+func encodeDatum(b []byte, val types.Datum, comparable bool, desc bool) ([]byte, error) {
 	switch val.Kind() {
 	case types.KindInt64:
-		val.SetInt64(^val.GetInt64())
+		b = encodeSignedInt(b, val.GetInt64(), comparable)
 	case types.KindUint64:
-		val.SetUint64(^val.GetUint64())
+		b = encodeUnsignedInt(b, val.GetUint64(), comparable)
 	case types.KindFloat32, types.KindFloat64:
-		val.SetFloat64(-val.GetFloat64())
-	case types.KindString:
-		runes := []rune(val.GetString())
-		for i, v := range runes {
-			runes[i] = ^v
-		}
-		val.SetString(string(runes))
-	case types.KindBytes:
-		bytes := val.GetBytes()
-		for i, v := range bytes {
-			bytes[i] = ^v
-		}
-		val.SetBytes([]byte(bytes))
+		b = append(b, floatFlag)
+		b = EncodeFloat(b, val.GetFloat64())
+	case types.KindString, types.KindBytes:
+		b = encodeBytes(b, val.GetBytes(), comparable)
 	case types.KindMysqlTime:
+		b = append(b, uintFlag)
 		t := val.GetMysqlTime()
+		// Encoding timestamp need to consider timezone.
+		// If it's not in UTC, transform to UTC first.
+		if t.Type == mysql.TypeTimestamp && t.TimeZone != time.UTC {
+			t.ConvertTimeZone(t.TimeZone, time.UTC)
+		}
 		v, err := t.ToPackedUint()
 		if err != nil {
-			return errors.Trace(err)
+			return nil, errors.Trace(err)
 		}
-		t.FromPackedUint(^v)
-		val.SetMysqlTime(t)
+		b = EncodeUint(b, v)
 	case types.KindMysqlDuration:
-		val.SetMysqlDuration(types.Duration{^val.GetMysqlDuration().Duration, 0})
+		// duration may have negative value, so we cannot use String to encode directly.
+		b = append(b, durationFlag)
+		b = EncodeInt(b, int64(val.GetMysqlDuration().Duration))
+	case types.KindMysqlDecimal:
+		b = append(b, decimalFlag)
+		b = EncodeDecimal(b, val)
 	case types.KindMysqlHex:
-		h := types.Hex{Value: ^int64(val.GetMysqlHex().ToNumber())}
-		val.SetMysqlHex(h)
+		b = encodeSignedInt(b, int64(val.GetMysqlHex().ToNumber()), comparable)
 	case types.KindMysqlBit:
-		b := types.Bit{Value: ^uint64(val.GetMysqlBit().ToNumber()), Width: types.MaxBitWidth}
-		val.SetMysqlBit(b)
+		b = encodeUnsignedInt(b, uint64(val.GetMysqlBit().ToNumber()), comparable)
 	case types.KindMysqlEnum:
-		e := types.Enum{Name: val.GetMysqlEnum().String(), Value: ^uint64(val.GetMysqlEnum().ToNumber())}
-		val.SetMysqlEnum(e)
+		b = encodeUnsignedInt(b, uint64(val.GetMysqlEnum().ToNumber()), comparable)
 	case types.KindMysqlSet:
-		s := types.Set{Name: val.GetMysqlSet().String(), Value: ^uint64(val.GetMysqlSet().ToNumber())}
-		val.SetMysqlSet(s)
+		b = encodeUnsignedInt(b, uint64(val.GetMysqlSet().ToNumber()), comparable)
+	case types.KindMysqlJSON:
+		b = append(b, jsonFlag)
+		b = append(b, json.Serialize(val.GetMysqlJSON())...)
+	case types.KindNull:
+		b = append(b, NilFlag)
 	case types.KindMinNotNull:
-		val.SetKind(types.KindMaxValue)
+		b = append(b, bytesFlag)
 	case types.KindMaxValue:
-		val.SetKind(types.KindMinNotNull)
+		b = append(b, maxFlag)
 	default:
-		return errors.Errorf("type %d is not comparable", val.Kind())
+		return nil, errors.Errorf("unsupport encode type %d", val.Kind())
 	}
-	return nil
+
+	if desc {
+		b = ascEncodeToDescEncode(b)
+	}
+	return b, nil
 }
 
-func encode(b []byte, vals []types.Datum, comparable bool) ([]byte, error) {
+func encode(b []byte, vals []types.Datum, comparable bool, desc bool) ([]byte, error) {
 	for _, val := range vals {
-		switch val.Kind() {
-		case types.KindInt64:
-			b = encodeSignedInt(b, val.GetInt64(), comparable)
-		case types.KindUint64:
-			b = encodeUnsignedInt(b, val.GetUint64(), comparable)
-		case types.KindFloat32, types.KindFloat64:
-			b = append(b, floatFlag)
-			b = EncodeFloat(b, val.GetFloat64())
-		case types.KindString, types.KindBytes:
-			b = encodeBytes(b, val.GetBytes(), comparable)
-		case types.KindMysqlTime:
-			b = append(b, uintFlag)
-			t := val.GetMysqlTime()
-			// Encoding timestamp need to consider timezone.
-			// If it's not in UTC, transform to UTC first.
-			if t.Type == mysql.TypeTimestamp && t.TimeZone != time.UTC {
-				t.ConvertTimeZone(t.TimeZone, time.UTC)
-			}
-			v, err := t.ToPackedUint()
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-			b = EncodeUint(b, v)
-		case types.KindMysqlDuration:
-			// duration may have negative value, so we cannot use String to encode directly.
-			b = append(b, durationFlag)
-			b = EncodeInt(b, int64(val.GetMysqlDuration().Duration))
-		case types.KindMysqlDecimal:
-			b = append(b, decimalFlag)
-			b = EncodeDecimal(b, val)
-		case types.KindMysqlHex:
-			b = encodeSignedInt(b, int64(val.GetMysqlHex().ToNumber()), comparable)
-		case types.KindMysqlBit:
-			b = encodeUnsignedInt(b, uint64(val.GetMysqlBit().ToNumber()), comparable)
-		case types.KindMysqlEnum:
-			b = encodeUnsignedInt(b, uint64(val.GetMysqlEnum().ToNumber()), comparable)
-		case types.KindMysqlSet:
-			b = encodeUnsignedInt(b, uint64(val.GetMysqlSet().ToNumber()), comparable)
-		case types.KindMysqlJSON:
-			b = append(b, jsonFlag)
-			b = append(b, json.Serialize(val.GetMysqlJSON())...)
-		case types.KindNull:
-			b = append(b, NilFlag)
-		case types.KindMinNotNull:
-			b = append(b, bytesFlag)
-		case types.KindMaxValue:
-			b = append(b, maxFlag)
-		default:
-			return nil, errors.Errorf("unsupport encode type %d", val.Kind())
+		encoded, err := encodeDatum(nil, val, comparable, desc)
+		if err != nil {
+			return nil, errors.Trace(err)
 		}
+		b = append(b, encoded...)
 	}
-
 	return b, nil
 }
 
@@ -186,13 +199,62 @@ func encodeUnsignedInt(b []byte, v uint64, comparable bool) []byte {
 // slice. It guarantees the encoded value is in ascending order for comparison.
 // For Decimal type, datum must set datum's length and frac.
 func EncodeKey(b []byte, v ...types.Datum) ([]byte, error) {
-	return encode(b, v, true)
+	return encode(b, v, true, false)
+}
+
+// EncodeDescKey appends the encoded values to byte slice b, returns the appended
+// slice. It guarantees the encoded value is in descending order for comparison.
+// For Decimal type, datum must set datum's length and frac.
+func EncodeDescKey(b []byte, v ...types.Datum) ([]byte, error) {
+	return encode(b, v, true, true)
 }
 
 // EncodeValue appends the encoded values to byte slice b, returning the appended
 // slice. It does not guarantee the order for comparison.
 func EncodeValue(b []byte, v ...types.Datum) ([]byte, error) {
-	return encode(b, v, false)
+	return encode(b, v, false, false)
+}
+
+// Revert asc encode to desc encode bytes
+func ascEncodeToDescEncode(b []byte) []byte {
+	if b[0]&descDecode != descDecode {
+		var asc []byte
+		//log.Infof("[yusp] a2d before b %d", b)
+		// For desc order encode value, we reverse each byte, then add the descDecode flag on type part
+		for i := range b {
+			if i == 0 {
+				//log.Infof("[yusp] a2d before flag %d", b[0])
+				asc = append(asc, b[0]|descDecode)
+				//log.Infof("[yusp] a2d after flag %d", b[0])
+				continue
+			}
+			asc = append(asc, ^b[i])
+		}
+		//log.Infof("[yusp] a2d after b %d", asc)
+		return asc
+	}
+	return b
+}
+
+// Revert desc encode to asc encode bytes
+func descEncodeToAscEncode(b []byte) []byte {
+	// Reverse bytes to normal encoding style
+	if b[0]&descDecode == descDecode {
+		var desc []byte
+		//log.Infof("[yusp] d2a before b %d", b)
+		for i := range b {
+			if i == 0 {
+				//log.Infof("[yusp] d2a before flag %d", b[0])
+				desc = append(desc, b[0]^descDecode)
+				//log.Infof("[yusp] d2a after flag %d", b[0])
+				continue
+			}
+			desc = append(desc, ^b[i])
+		}
+		//log.Infof("[yusp] d2a after b %d", desc)
+		return desc
+	}
+	return b
 }
 
 // Decode decodes values from a byte slice generated with EncodeKey or EncodeValue
@@ -225,6 +287,12 @@ func Decode(b []byte, size int) ([]types.Datum, error) {
 func DecodeOne(b []byte) (remain []byte, d types.Datum, err error) {
 	if len(b) < 1 {
 		return nil, d, errors.New("invalid encoded key")
+	}
+	descEncoded := b[0]&descDecode == descDecode
+	if descEncoded {
+		//log.Infof("[yusp] before decode %d ", b)
+		b = descEncodeToAscEncode(b)
+		//log.Infof("[yusp] after decode %d ", b)
 	}
 	flag := b[0]
 	b = b[1:]
@@ -278,6 +346,12 @@ func DecodeOne(b []byte) (remain []byte, d types.Datum, err error) {
 	if err != nil {
 		return b, d, errors.Trace(err)
 	}
+	if descEncoded {
+		for i := range b {
+			b[i] = ^b[i]
+		}
+		//log.Infof("[yusp] reverse back %d", b)
+	}
 	return b, d, nil
 }
 
@@ -309,6 +383,11 @@ func peek(b []byte) (length int, err error) {
 	if len(b) < 1 {
 		return 0, errors.New("invalid encoded key")
 	}
+	//log.Infof("[yusp] normal b %d", b)
+	descEncoded := b[0]&descDecode == descDecode
+	if descEncoded {
+		b = descEncodeToAscEncode(b)
+	}
 	flag := b[0]
 	length++
 	b = b[1:]
@@ -337,6 +416,12 @@ func peek(b []byte) (length int, err error) {
 		return 0, errors.Trace(err)
 	}
 	length += l
+	if descEncoded {
+		for i := range b {
+			b[i] = ^b[i]
+		}
+		//log.Infof("[yusp] reverse back %d", b)
+	}
 	return
 }
 

@@ -243,6 +243,7 @@ func DecodeColumnValue(data []byte, ft *types.FieldType, loc *time.Location) (ty
 	if err != nil {
 		return types.Datum{}, errors.Trace(err)
 	}
+	//log.Infof("[yusp] DecodeColumnValue %d", d.GetInt64())
 	colDatum, err := unflatten(d, ft, loc)
 	if err != nil {
 		return types.Datum{}, errors.Trace(err)

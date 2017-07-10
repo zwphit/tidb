@@ -144,11 +144,13 @@ func (is *PhysicalIndexScan) matchProperty(prop *requiredProperty, infos ...*phy
 			}
 		}
 		sortedCost := cost + rowCount*cpuFactor
+		//log.Infof("[yusp] allAsc %t, allDesc %t", allAsc, allDesc)
 		if allAsc || allDesc {
 			sortedIS := is.Copy().(*PhysicalIndexScan)
 			sortedIS.OutOfOrder = false
 			sortedIS.Desc = allDesc && !allAsc
 			// If the first index column is desc ordered column, the index will be a desc index.
+			//log.Infof("[yusp] index.Desc %t", is.Index.Desc)
 			if is.Index.Desc {
 				sortedIS.Desc = !sortedIS.Desc
 			}

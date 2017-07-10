@@ -715,7 +715,7 @@ func (p *DataSource) convertToIndexScan(prop *requiredProp, idx *model.IndexInfo
 		}
 	}
 	if matchProperty && !prop.isEmpty() {
-		if prop.desc {
+		if (prop.desc && !idx.Desc) || (!prop.desc && idx.Desc) {
 			is.Desc = true
 			cop.cst = rowCount * descScanFactor
 		}

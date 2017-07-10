@@ -157,21 +157,35 @@ func tableHandlesToKVRanges(tid int64, handles []int64) []kv.KeyRange {
 }
 
 // indexValuesToKVRanges will convert the index datums to kv ranges.
-func indexValuesToKVRanges(tid, idxID int64, values [][]types.Datum) ([]kv.KeyRange, error) {
+func indexValuesToKVRanges(tid, idxID int64, values [][]types.Datum, descIndex bool) ([]kv.KeyRange, error) {
 	krs := make([]kv.KeyRange, 0, len(values))
-	for _, vals := range values {
-		// TODO: We don't process the case that equal key has different types.
-		valKey, err := codec.EncodeKey(nil, vals...)
-		if err != nil {
-			return nil, errors.Trace(err)
+	if descIndex {
+		for _, vals := range values {
+			// TODO: We don't process the case that equal key has different types.
+			//log.Infof("[yusp] here!")
+			valKey, err := codec.EncodeDescKey(nil, vals...)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			rangeKey := tablecodec.EncodeIndexSeekKey(tid, idxID, valKey)
+			krs = append([]kv.KeyRange{{StartKey: rangeKey, EndKey: rangeKey}}, krs...)
 		}
-		rangeKey := tablecodec.EncodeIndexSeekKey(tid, idxID, valKey)
-		krs = append(krs, kv.KeyRange{StartKey: rangeKey, EndKey: rangeKey})
+	} else {
+		for _, vals := range values {
+			valKey, err := codec.EncodeKey(nil, vals...)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			rangeKey := tablecodec.EncodeIndexSeekKey(tid, idxID, valKey)
+			krs = append(krs, kv.KeyRange{StartKey: rangeKey, EndKey: rangeKey})
+		}
+
 	}
 	return krs, nil
 }
 
-func indexRangesToKVRanges(sc *variable.StatementContext, tid, idxID int64, ranges []*types.IndexRange, fieldTypes []*types.FieldType) ([]kv.KeyRange, error) {
+func indexRangesToKVRanges(sc *variable.StatementContext, tid, idxID int64, ranges []*types.IndexRange, fieldTypes []*types.FieldType, descIndex bool) ([]kv.KeyRange, error) {
+	//log.Infof("[yusp] indexRangesToKVRanges")
 	krs := make([]kv.KeyRange, 0, len(ranges))
 	for _, ran := range ranges {
 		err := convertIndexRangeTypes(sc, ran, fieldTypes)
@@ -179,23 +193,62 @@ func indexRangesToKVRanges(sc *variable.StatementContext, tid, idxID int64, rang
 			return nil, errors.Trace(err)
 		}
 
-		low, err := codec.EncodeKey(nil, ran.LowVal...)
-		if err != nil {
-			return nil, errors.Trace(err)
+		var low, high []byte
+		if descIndex {
+			//log.Infof("[yusp] here!")
+			for i := 0; i < len(ran.LowVal); i++ {
+				if ran.LowVal[i].Kind() == types.KindNull && ran.HighVal[i].Kind() == types.KindMaxValue {
+					ran.LowVal[i].SetKind(types.KindMaxValue)
+					ran.HighVal[i].SetKind(types.KindNull)
+				}
+				if ran.LowVal[i].Kind() == types.KindMinNotNull {
+					ran.LowVal[i].SetKind(types.KindMaxValue)
+				}
+				if ran.HighVal[i].Kind() == types.KindMaxValue {
+					ran.HighVal[i].SetKind(types.KindMinNotNull)
+				}
+			}
+			low, err = codec.EncodeDescKey(nil, ran.LowVal...)
+			//log.Infof("[yusp] ran.LowVal %d, %d", ran.LowVal[0].Kind(), ran.LowVal[0].GetInt64())
+			//log.Infof("[yusp] low %d", low)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			if ran.LowExclude {
+				low = []byte(kv.Key(low).PrefixNext())
+			}
+			//log.Infof("[yusp] here!")
+			high, err = codec.EncodeDescKey(nil, ran.HighVal...)
+			//log.Infof("[yusp] ran.HighVal %d, %d", ran.HighVal[0].Kind(), ran.HighVal[0].GetInt64())
+			//log.Infof("[yusp] high %d", high)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			if !ran.HighExclude {
+				high = []byte(kv.Key(high).PrefixNext())
+			}
+			startKey := tablecodec.EncodeIndexSeekKey(tid, idxID, high)
+			endKey := tablecodec.EncodeIndexSeekKey(tid, idxID, low)
+			krs = append([]kv.KeyRange{{StartKey: startKey, EndKey: endKey}}, krs...)
+		} else {
+			low, err = codec.EncodeKey(nil, ran.LowVal...)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			if ran.LowExclude {
+				low = []byte(kv.Key(low).PrefixNext())
+			}
+			high, err = codec.EncodeKey(nil, ran.HighVal...)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			if !ran.HighExclude {
+				high = []byte(kv.Key(high).PrefixNext())
+			}
+			startKey := tablecodec.EncodeIndexSeekKey(tid, idxID, low)
+			endKey := tablecodec.EncodeIndexSeekKey(tid, idxID, high)
+			krs = append(krs, kv.KeyRange{StartKey: startKey, EndKey: endKey})
 		}
-		if ran.LowExclude {
-			low = []byte(kv.Key(low).PrefixNext())
-		}
-		high, err := codec.EncodeKey(nil, ran.HighVal...)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		if !ran.HighExclude {
-			high = []byte(kv.Key(high).PrefixNext())
-		}
-		startKey := tablecodec.EncodeIndexSeekKey(tid, idxID, low)
-		endKey := tablecodec.EncodeIndexSeekKey(tid, idxID, high)
-		krs = append(krs, kv.KeyRange{StartKey: startKey, EndKey: endKey})
 	}
 	return krs, nil
 }
@@ -428,6 +481,7 @@ func (e *XSelectIndexExec) Close() error {
 
 // Next implements the Executor Next interface.
 func (e *XSelectIndexExec) Next() (*Row, error) {
+	//log.Infof("[yusp] Next")
 	if e.limitCount != nil && len(e.sortItemsPB) == 0 && e.returnedRows >= uint64(*e.limitCount) {
 		return nil, nil
 	}
@@ -527,10 +581,11 @@ func (e *XSelectIndexExec) indexRowToTableRow(handle int64, indexRow []types.Dat
 		}
 		for j, idxCol := range e.index.Columns {
 			if tblCol.Name.L == idxCol.Name.L {
-				if e.index.Desc {
-					codec.ReverseComparableDatum(&indexRow[j])
-				}
+				//if e.index.Desc {
+				//	codec.ReverseComparableDatum(&indexRow[j])
+				//}
 				tableRow[i] = indexRow[j]
+				//log.Infof("[yusp] tableRow[i] %d", tableRow[i].GetInt64())
 				break
 			}
 		}
@@ -634,6 +689,7 @@ func (e *XSelectIndexExec) fetchHandles(idxResult distsql.SelectResult, ch chan<
 }
 
 func (e *XSelectIndexExec) doIndexRequest() (distsql.SelectResult, error) {
+	//log.Infof("[yusp] doIndexRequest")
 	selIdxReq := new(tipb.SelectRequest)
 	selIdxReq.StartTs = e.startTS
 	selIdxReq.TimeZoneOffset = timeZoneOffset(e.ctx)
@@ -663,7 +719,7 @@ func (e *XSelectIndexExec) doIndexRequest() (distsql.SelectResult, error) {
 		fieldTypes[i] = &(e.table.Cols()[v.Offset].FieldType)
 	}
 	sc := e.ctx.GetSessionVars().StmtCtx
-	keyRanges, err := indexRangesToKVRanges(sc, e.table.Meta().ID, e.index.ID, e.ranges, fieldTypes)
+	keyRanges, err := indexRangesToKVRanges(sc, e.table.Meta().ID, e.index.ID, e.ranges, fieldTypes, e.index.Desc)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

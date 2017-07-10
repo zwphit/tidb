@@ -277,6 +277,7 @@ func (e *evalContext) decodeRelatedColumnVals(relatedColOffsets []int, value [][
 	var err error
 	for _, offset := range relatedColOffsets {
 		row[offset], err = tablecodec.DecodeColumnValue(value[offset], e.fieldTps[offset], e.timeZone)
+		//log.Infof("[yusp] row[offset] %d", row[offset].GetInt64())
 		if err != nil {
 			return errors.Trace(err)
 		}

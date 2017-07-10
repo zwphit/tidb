@@ -440,14 +440,27 @@ func (idx *Index) getRowCount(sc *variable.StatementContext, indexRanges []*type
 	totalCount := float64(0)
 	for _, indexRange := range indexRanges {
 		indexRange.Align(len(idx.Info.Columns))
-		lb, err := codec.EncodeKey(nil, indexRange.LowVal...)
+		var lb []byte
+		var err error
+		if idx.Info.Desc {
+			//log.Infof("[yusp] here!")
+			lb, err = codec.EncodeDescKey(nil, indexRange.LowVal...)
+		} else {
+			lb, err = codec.EncodeKey(nil, indexRange.LowVal...)
+		}
 		if err != nil {
 			return 0, errors.Trace(err)
 		}
 		if indexRange.LowExclude {
 			lb = append(lb, 0)
 		}
-		rb, err := codec.EncodeKey(nil, indexRange.HighVal...)
+		var rb []byte
+		if idx.Info.Desc {
+			//log.Infof("[yusp] here!")
+			rb, err = codec.EncodeDescKey(nil, indexRange.HighVal...)
+		} else {
+			rb, err = codec.EncodeKey(nil, indexRange.HighVal...)
+		}
 		if err != nil {
 			return 0, errors.Trace(err)
 		}
@@ -456,7 +469,12 @@ func (idx *Index) getRowCount(sc *variable.StatementContext, indexRanges []*type
 		}
 		l := types.NewBytesDatum(lb)
 		r := types.NewBytesDatum(rb)
-		rowCount, err := idx.betweenRowCount(sc, l, r)
+		var rowCount float64
+		if idx.Info.Desc {
+			rowCount, err = idx.betweenRowCount(sc, r, l)
+		} else {
+			rowCount, err = idx.betweenRowCount(sc, l, r)
+		}
 		if err != nil {
 			return 0, errors.Trace(err)
 		}

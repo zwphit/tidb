@@ -36,27 +36,6 @@ import (
 
 const maxPrefixLength = 3072
 
-// Find desc flag in all columns of the index.
-// If one desc flag is true, index desc flag will set true.
-//func refineDescIdxColumns(idxColNames []*ast.IndexColName) {
-//	hasDesc := false
-//
-//	for _, ic := range idxColNames {
-//		if ic.Desc {
-//			hasDesc = true
-//			break
-//		}
-//	}
-//
-//	if hasDesc {
-//		// For each separate single column will have its own index order (asc or desc) in future,
-//		// we do not add a desc flag for the whole index.
-//		// We use the first column order flag as whole index order flag instead.
-//		idxColNames[0].Desc = true
-//		log.Infof("The index will turn to desc ordered.")
-//	}
-//}
-
 func buildIndexColumns(columns []*model.ColumnInfo, idxColNames []*ast.IndexColName) ([]*model.IndexColumn, error) {
 	// Build offsets.
 	idxColumns := make([]*model.IndexColumn, 0, len(idxColNames))
@@ -73,9 +52,6 @@ func buildIndexColumns(columns []*model.ColumnInfo, idxColNames []*ast.IndexColN
 			return nil, errKeyColumnDoesNotExits.Gen("column does not exist: %s", ic.Column.Name)
 		}
 
-		if ic.Desc && (col.FieldType.Tp == mysql.TypeDecimal) {
-			return nil, errUnsupportedDescIndexType.Gen("%s", ic.Column.Name)
-		}
 		// JSON column cannot index.
 		if col.FieldType.Tp == mysql.TypeJSON {
 			return nil, errors.Trace(errJSONUsedAsKey.GenByArgs(col.Name.O))

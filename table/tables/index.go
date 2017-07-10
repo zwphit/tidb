@@ -131,14 +131,14 @@ func (c *index) GenIndexKey(indexedValues []types.Datum, h int64) (key []byte, d
 		}
 	}
 
-	if c.idxInfo.Desc {
-		for i := range c.idxInfo.Columns {
-			err = codec.ReverseComparableDatum(&indexedValues[i])
-			if err != nil {
-				return nil, false, errors.Trace(err)
-			}
-		}
-	}
+	//if c.idxInfo.Desc {
+	//	for i := range c.idxInfo.Columns {
+	//		err = codec.ReverseComparableDatum(&indexedValues[i])
+	//		if err != nil {
+	//			return nil, false, errors.Trace(err)
+	//		}
+	//	}
+	//}
 
 	// For string columns, indexes can be created that use only the leading part of column values,
 	// using col_name(length) syntax to specify an index prefix length.
@@ -155,9 +155,19 @@ func (c *index) GenIndexKey(indexedValues []types.Datum, h int64) (key []byte, d
 
 	key = append(key, []byte(c.prefix)...)
 	if distinct {
-		key, err = codec.EncodeKey(key, indexedValues...)
+		if c.idxInfo.Desc {
+			key, err = codec.EncodeDescKey(key, indexedValues...)
+			//log.Infof("[yusp] unique key %b", key)
+		} else {
+			key, err = codec.EncodeKey(key, indexedValues...)
+		}
 	} else {
-		key, err = codec.EncodeKey(key, append(indexedValues, types.NewDatum(h))...)
+		if c.idxInfo.Desc {
+			key, err = codec.EncodeDescKey(key, append(indexedValues, types.NewDatum(h))...)
+			//log.Infof("[yusp] non-unique key %b", key)
+		} else {
+			key, err = codec.EncodeKey(key, append(indexedValues, types.NewDatum(h))...)
+		}
 	}
 	if err != nil {
 		return nil, false, errors.Trace(err)

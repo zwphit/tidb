@@ -58,8 +58,6 @@ var (
 	errUnsupportedPKHandle     = terror.ClassDDL.New(codeUnsupportedDropPKHandle,
 		"unsupported drop integer primary key")
 	errUnsupportedCharset = terror.ClassDDL.New(codeUnsupportedCharset, "unsupported charset %s collate %s")
-	errUnsupportedDescIndexType = terror.ClassDDL.New(codeUnsupportedDescIndexType,
-		"unsupported column type %s for descending index")
 
 	errBlobKeyWithoutLength = terror.ClassDDL.New(codeBlobKeyWithoutLength, "index for BLOB/TEXT column must specificate a key length")
 	errIncorrectPrefixKey   = terror.ClassDDL.New(codeIncorrectPrefixKey, "Incorrect prefix key; the used key part isn't a string, the used length is longer than the key part, or the storage engine doesn't support unique prefix keys")
@@ -496,7 +494,6 @@ const (
 	codeUnsupportedDropPKHandle     = 204
 	codeUnsupportedCharset          = 205
 	codeUnsupportedModifyPrimaryKey = 206
-	codeUnsupportedDescIndexType    = 207
 
 	codeFileNotFound                 = 1017
 	codeErrorOnRename                = 1025
