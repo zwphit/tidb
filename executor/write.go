@@ -38,16 +38,12 @@ var (
 	_ Executor = &LoadData{}
 )
 
-func fillUpdateNewData(ctx context.Context, t table.Table, oldData, newData []types.Datum, changed []bool) (handleChanged bool, err error) {
-	return
-}
-
 // 1. fill values into on-update-now fields;
 // 2. rebase auto increment id if the field is changed;
 // 3. cast changed fields with respective columns;
 // 4. calculate it updates the record really or not;
 // 5. check not-null constraints.
-func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, touched []bool, t table.Table) (bool, error) {
+func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, touched []bool, t table.Table, onDup bool) (bool, error) {
 	var cols = t.WritableCols()
 	var sc = ctx.GetSessionVars().StmtCtx
 
@@ -130,6 +126,12 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 	tid := t.Meta().ID
 	dirtyDB.deleteRow(tid, h)
 	dirtyDB.addRow(tid, h, newData)
+
+	if onDup {
+		ctx.GetSessionVars().StmtCtx.AddAffectedRows(2)
+	} else {
+		ctx.GetSessionVars().StmtCtx.AddAffectedRows(1)
+	}
 
 	ctx.GetSessionVars().TxnCtx.UpdateDeltaForTable(t.Meta().ID, 0, 1)
 	return true, nil
@@ -976,12 +978,9 @@ func (e *InsertExec) onDuplicateUpdate(row []types.Datum, h int64, cols []*expre
 		newData[col.Col.Index] = val
 		assignFlag[col.Col.Index] = true
 	}
-	changed, err := updateRecord(e.ctx, h, data, newData, assignFlag, e.Table)
+	_, err = updateRecord(e.ctx, h, data, newData, assignFlag, e.Table, true)
 	if err != nil {
 		return errors.Trace(err)
-	}
-	if changed {
-		e.ctx.GetSessionVars().StmtCtx.AddAffectedRows(2)
 	}
 	return nil
 }
@@ -1160,12 +1159,11 @@ func (e *UpdateExec) Next() (*Row, error) {
 			continue
 		}
 		// Update row
-		changed, err1 := updateRecord(e.ctx, handle, oldData, newTableData, flags, tbl)
+		changed, err1 := updateRecord(e.ctx, handle, oldData, newTableData, flags, tbl, false)
 		if err1 != nil {
 			return nil, errors.Trace(err1)
 		}
 		if changed {
-			e.ctx.GetSessionVars().StmtCtx.AddAffectedRows(1)
 			e.updatedRowKeys[tbl][handle] = struct{}{}
 		}
 	}

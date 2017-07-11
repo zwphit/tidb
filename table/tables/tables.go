@@ -272,9 +272,7 @@ func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []ty
 		return errors.Trace(err)
 	}
 	if shouldWriteBinlog(ctx) {
-		if err = t.addUpdateBinlog(ctx, binlogOldRow, binlogNewRow, binlogColIDs); err != nil {
-			// TODO
-		}
+		t.addUpdateBinlog(ctx, binlogOldRow, binlogNewRow, binlogColIDs)
 	}
 	return nil
 }
@@ -326,13 +324,15 @@ func (t *Table) AddRecord(ctx context.Context, r []types.Datum) (recordID int64,
 			return 0, errors.Trace(err)
 		}
 	}
+
 	txn := ctx.Txn()
+	bs := kv.NewBufferStore(txn)
+
 	skipCheck := ctx.GetSessionVars().SkipConstraintCheck
 	if skipCheck {
 		txn.SetOption(kv.SkipCheckForWrite, true)
 	}
 
-	bs := kv.NewBufferStore(txn)
 	// Insert new entries into indices.
 	h, err := t.addIndices(ctx, recordID, r, bs)
 	if err != nil {
@@ -376,9 +376,7 @@ func (t *Table) AddRecord(ctx context.Context, r []types.Datum) (recordID int64,
 		// For insert, TiDB and Binlog can use same row and schema.
 		binlogRow = row
 		binlogColIDs = colIDs
-		if err = t.addInsertBinlog(ctx, recordID, binlogRow, binlogColIDs); err != nil {
-			// TODO: log or return error?
-		}
+		t.addInsertBinlog(ctx, recordID, binlogRow, binlogColIDs)
 	}
 	ctx.GetSessionVars().StmtCtx.AddAffectedRows(1)
 	ctx.GetSessionVars().TxnCtx.UpdateDeltaForTable(t.ID, 1, 1)
