@@ -229,9 +229,16 @@ func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []ty
 		return errors.Trace(err)
 	}
 
-	oldRow := make([]types.Datum, 0, len(oldData))
-	newRow := make([]types.Datum, 0, len(newData))
-	colIDs := make([]int64, 0, len(newData))
+	var colIDs, binlogColIDs []int64
+	var row, binlogOldRow, binlogNewRow []types.Datum
+	colIDs = make([]int64, 0, len(newData))
+	row = make([]types.Datum, 0, len(newData))
+	if shouldWriteBinlog(ctx) {
+		binlogColIDs = make([]int64, 0, len(newData))
+		binlogOldRow = make([]types.Datum, 0, len(newData))
+		binlogNewRow = make([]types.Datum, 0, len(newData))
+	}
+
 	for _, col := range t.WritableCols() {
 		var value types.Datum
 		if col.State != model.StatePublic && newData[col.Offset].IsNull() {
@@ -242,19 +249,22 @@ func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []ty
 		} else {
 			value = newData[col.Offset]
 		}
-		if t.CanSkip(col, value) {
-			continue
+		if !t.CanSkip(col, value) {
+			colIDs = append(colIDs, col.ID)
+			row = append(row, value)
 		}
-		colIDs = append(colIDs, col.ID)
-		newRow = append(newRow, value)
-		oldRow = append(oldRow, oldData[col.Offset])
+		if shouldWriteBinlog(ctx) && !t.CanSkipUpdateBinlog(col, value) {
+			binlogColIDs = append(binlogColIDs, col.ID)
+			binlogOldRow = append(binlogOldRow, oldData[col.Offset])
+			binlogNewRow = append(binlogNewRow, value)
+		}
 	}
+
 	key := t.RecordKey(h)
-	value, err := tablecodec.EncodeRow(newRow, colIDs, ctx.GetSessionVars().GetTimeZone())
+	value, err := tablecodec.EncodeRow(row, colIDs, ctx.GetSessionVars().GetTimeZone())
 	if err != nil {
 		return errors.Trace(err)
 	}
-
 	if err = bs.Set(key, value); err != nil {
 		return errors.Trace(err)
 	}
@@ -262,14 +272,9 @@ func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []ty
 		return errors.Trace(err)
 	}
 	if shouldWriteBinlog(ctx) {
-		bin, err := tablecodec.EncodeRow(oldRow, colIDs, ctx.GetSessionVars().GetTimeZone())
-		if err != nil {
-			return errors.Trace(err)
+		if err = t.addUpdateBinlog(ctx, binlogOldRow, binlogNewRow, binlogColIDs); err != nil {
+			// TODO
 		}
-		bin = append(bin, value...)
-		mutation := t.getMutation(ctx)
-		mutation.UpdatedRows = append(mutation.UpdatedRows, bin)
-		mutation.Sequence = append(mutation.Sequence, binlog.MutationType_Update)
 	}
 	return nil
 }
@@ -334,9 +339,11 @@ func (t *Table) AddRecord(ctx context.Context, r []types.Datum) (recordID int64,
 		return h, errors.Trace(err)
 	}
 
-	colIDs := make([]int64, 0, len(r))
-	row := make([]types.Datum, 0, len(r))
-	// Set public and write only column value.
+	var colIDs, binlogColIDs []int64
+	var row, binlogRow []types.Datum
+	colIDs = make([]int64, 0, len(r))
+	row = make([]types.Datum, 0, len(r))
+
 	for _, col := range t.WritableCols() {
 		var value types.Datum
 		if col.State == model.StateWriteOnly || col.State == model.StateWriteReorganization {
@@ -348,12 +355,12 @@ func (t *Table) AddRecord(ctx context.Context, r []types.Datum) (recordID int64,
 		} else {
 			value = r[col.Offset]
 		}
-		if t.CanSkip(col, value) {
-			continue
+		if !t.CanSkip(col, value) {
+			colIDs = append(colIDs, col.ID)
+			row = append(row, value)
 		}
-		colIDs = append(colIDs, col.ID)
-		row = append(row, value)
 	}
+
 	key := t.RecordKey(recordID)
 	value, err := tablecodec.EncodeRow(row, colIDs, ctx.GetSessionVars().GetTimeZone())
 	if err != nil {
@@ -366,12 +373,12 @@ func (t *Table) AddRecord(ctx context.Context, r []types.Datum) (recordID int64,
 		return 0, errors.Trace(err)
 	}
 	if shouldWriteBinlog(ctx) {
-		mutation := t.getMutation(ctx)
-		// prepend handle to the row value
-		handleVal, _ := codec.EncodeValue(nil, types.NewIntDatum(recordID))
-		bin := append(handleVal, value...)
-		mutation.InsertedRows = append(mutation.InsertedRows, bin)
-		mutation.Sequence = append(mutation.Sequence, binlog.MutationType_Insert)
+		// For insert, TiDB and Binlog can use same row and schema.
+		binlogRow = row
+		binlogColIDs = colIDs
+		if err = t.addInsertBinlog(ctx, recordID, binlogRow, binlogColIDs); err != nil {
+			// TODO: log or return error?
+		}
 	}
 	ctx.GetSessionVars().StmtCtx.AddAffectedRows(1)
 	ctx.GetSessionVars().TxnCtx.UpdateDeltaForTable(t.ID, 1, 1)
@@ -521,13 +528,32 @@ func (t *Table) RemoveRecord(ctx context.Context, h int64, r []types.Datum) erro
 	return errors.Trace(err)
 }
 
-func (t *Table) addUpdateBinlog(ctx context.Context, h int64, old []types.Datum, newValue []byte, colIDs []int64) error {
-	var bin []byte
-	oldData, err := tablecodec.EncodeRow(old, colIDs, ctx.GetSessionVars().GetTimeZone())
+func (t *Table) addInsertBinlog(ctx context.Context, h int64, row []types.Datum, colIDs []int64) error {
+	mutation := t.getMutation(ctx)
+	pk, err := codec.EncodeValue(nil, types.NewIntDatum(h))
 	if err != nil {
 		return errors.Trace(err)
 	}
-	bin = append(oldData, newValue...)
+	value, err := tablecodec.EncodeRow(row, colIDs, ctx.GetSessionVars().GetTimeZone())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	bin := append(pk, value...)
+	mutation.InsertedRows = append(mutation.InsertedRows, bin)
+	mutation.Sequence = append(mutation.Sequence, binlog.MutationType_Insert)
+	return nil
+}
+
+func (t *Table) addUpdateBinlog(ctx context.Context, oldRow, newRow []types.Datum, colIDs []int64) error {
+	old, err := tablecodec.EncodeRow(oldRow, colIDs, ctx.GetSessionVars().GetTimeZone())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	new, err := tablecodec.EncodeRow(newRow, colIDs, ctx.GetSessionVars().GetTimeZone())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	bin := append(old, new...)
 	mutation := t.getMutation(ctx)
 	mutation.UpdatedRows = append(mutation.UpdatedRows, bin)
 	mutation.Sequence = append(mutation.Sequence, binlog.MutationType_Update)
@@ -741,7 +767,7 @@ func (t *Table) getMutation(ctx context.Context) *binlog.TableMutation {
 	return &bin.Mutations[idx]
 }
 
-// For these cases, we can skip the columns in encode row:
+// For these cases, we can skip the columns in encoded row:
 // 1. the column is included in primary key;
 // 2. the column's default value is null, and the value equals to that;
 // 3. the column is virtual generated.
@@ -752,6 +778,15 @@ func (t *Table) CanSkip(col *table.Column, value types.Datum) bool {
 	if col.DefaultValue == nil && value.IsNull() {
 		return true
 	}
+	if len(col.GeneratedExprString) != 0 && !col.GeneratedStored {
+		return true
+	}
+	return false
+}
+
+// For these cases, we can skip the columns when write update binlog:
+// 1. the column is virtual generated.
+func (t *Table) CanSkipUpdateBinlog(col *table.Column, value types.Datum) bool {
 	if len(col.GeneratedExprString) != 0 && !col.GeneratedStored {
 		return true
 	}
