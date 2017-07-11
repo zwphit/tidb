@@ -23,7 +23,6 @@ import (
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
 	"github.com/pingcap/tidb/context"
-	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/model"
@@ -217,7 +216,6 @@ func (t *Table) remapTouchedFromWritable(touched []bool) []bool {
 
 // UpdateRecord implements table.Table UpdateRecord interface.
 func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, touched []bool) error {
-	debugTable(t)
 	txn := ctx.Txn()
 	bs := kv.NewBufferStore(txn)
 
@@ -265,33 +263,6 @@ func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []ty
 		t.addUpdateBinlog(ctx, h, oldData, value, colIDs)
 	}
 	return nil
-}
-
-func (t *Table) setOnUpdateData(ctx context.Context, touched map[int]bool, data []types.Datum) error {
-	ucols := table.FindOnUpdateCols(t.WritableCols())
-	for _, col := range ucols {
-		if !touched[col.Offset] {
-			value, err := expression.GetTimeValue(ctx, expression.CurrentTimestamp, col.Tp, col.Decimal)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			data[col.Offset] = value
-			touched[col.Offset] = true
-		}
-	}
-	return nil
-}
-
-// composeNewData fills untouched columns with original values.
-// TODO: consider col state
-func (t *Table) composeNewData(touched map[int]bool, newData []types.Datum, oldData []types.Datum) {
-	for i, od := range oldData {
-		if touched[i] {
-			continue
-		}
-		newData[i] = od
-	}
-	return
 }
 
 func (t *Table) rebuildIndices(rm kv.RetrieverMutator, h int64, touched []bool, oldData []types.Datum, newData []types.Datum) error {
