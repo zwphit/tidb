@@ -53,21 +53,7 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 
 	var changed = false
 	var handleChanged = false
-	for i := range touched {
-		col := cols[i]
-		if !touched[i] {
-			if mysql.HasOnUpdateNowFlag(col.Flag) {
-				log.Errorf("update on-update field: %s", col.Name.O)
-				v, err := expression.GetTimeValue(ctx, expression.CurrentTimestamp, col.Tp, col.Decimal)
-				if err != nil {
-					return false, errors.Trace(err)
-				}
-				newData[i] = v
-				touched[i] = true
-			} else {
-				continue
-			}
-		}
+	for i, col := range cols {
 		v, err := table.CastValue(ctx, newData[i], col.ToInfo())
 		if err != nil {
 			return false, errors.Trace(err)
@@ -93,6 +79,22 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 			touched[i] = true
 			if col.IsPKHandleColumn(t.Meta()) {
 				handleChanged = true
+			}
+		} else {
+			touched[i] = false
+		}
+	}
+	for i, col := range cols {
+		if !touched[i] {
+			if mysql.HasOnUpdateNowFlag(col.Flag) {
+				v, err := expression.GetTimeValue(ctx, expression.CurrentTimestamp, col.Tp, col.Decimal)
+				if err != nil {
+					return false, errors.Trace(err)
+				}
+				newData[i] = v
+				touched[i] = true
+			} else {
+				continue
 			}
 		}
 	}
@@ -979,7 +981,7 @@ func (e *InsertExec) onDuplicateUpdate(row []types.Datum, h int64, cols []*expre
 		return errors.Trace(err)
 	}
 	if changed {
-		e.ctx.GetSessionVars().StmtCtx.AddAffectedRows(1)
+		e.ctx.GetSessionVars().StmtCtx.AddAffectedRows(2)
 	}
 	return nil
 }

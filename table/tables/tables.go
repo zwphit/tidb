@@ -229,7 +229,8 @@ func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []ty
 		return errors.Trace(err)
 	}
 
-	row := make([]types.Datum, 0, len(newData))
+	oldRow := make([]types.Datum, 0, len(oldData))
+	newRow := make([]types.Datum, 0, len(newData))
 	colIDs := make([]int64, 0, len(newData))
 	for _, col := range t.WritableCols() {
 		var value types.Datum
@@ -245,10 +246,11 @@ func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []ty
 			continue
 		}
 		colIDs = append(colIDs, col.ID)
-		row = append(row, value)
+		newRow = append(newRow, value)
+		oldRow = append(oldRow, oldData[col.Offset])
 	}
 	key := t.RecordKey(h)
-	value, err := tablecodec.EncodeRow(row, colIDs, ctx.GetSessionVars().GetTimeZone())
+	value, err := tablecodec.EncodeRow(newRow, colIDs, ctx.GetSessionVars().GetTimeZone())
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -260,7 +262,14 @@ func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []ty
 		return errors.Trace(err)
 	}
 	if shouldWriteBinlog(ctx) {
-		t.addUpdateBinlog(ctx, h, oldData, value, colIDs)
+		bin, err := tablecodec.EncodeRow(oldRow, colIDs, ctx.GetSessionVars().GetTimeZone())
+		if err != nil {
+			return errors.Trace(err)
+		}
+		bin = append(bin, value...)
+		mutation := t.getMutation(ctx)
+		mutation.UpdatedRows = append(mutation.UpdatedRows, bin)
+		mutation.Sequence = append(mutation.Sequence, binlog.MutationType_Update)
 	}
 	return nil
 }
