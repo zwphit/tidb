@@ -222,3 +222,46 @@ func formatDatum(d Datum) string {
 	}
 	return fmt.Sprintf("%v", d.GetValue())
 }
+
+// ReverseRange reverse range to opposite order, e.g.
+// (a, b] => [b, a)
+// (-inf, b] => [b, +inf)
+func (ir *IndexRange) ReverseRange() *IndexRange {
+	for i := 0; i < len(ir.LowVal); i++ {
+		if ir.LowVal[i].Kind() == KindMinNotNull {
+			// (-inf, a) => (a, +inf)
+			// (-inf, a] => [a, +inf)
+			ir.LowVal[i], ir.HighVal[i] = ir.HighVal[i], ir.LowVal[i]
+			ir.HighVal[i].SetKind(KindMaxValue)
+		} else if (ir.LowVal[i].Kind() != KindNull ||
+			ir.LowVal[i].Kind() != KindMaxValue) &&
+			ir.HighVal[i].Kind() == KindMaxValue {
+			// (a, +inf) => (-inf, a)
+			// [a, +inf) => (-inf, a]
+			ir.LowVal[i], ir.HighVal[i] = ir.HighVal[i], ir.LowVal[i]
+			ir.LowVal[i].SetKind(KindMinNotNull)
+		} else if ir.LowVal[i].Kind() == KindNull &&
+			ir.HighVal[i].Kind() == KindMaxValue {
+			// (a, b) => (b, a)
+			// nothing to do
+		} else if ir.LowVal[i].Kind() == KindMaxValue &&
+			ir.HighVal[i].Kind() == KindMaxValue {
+			// (a, b] => [b, a)
+			ir.LowVal[i].SetKind(KindNull)
+			ir.HighVal[i].SetKind(KindNull)
+		} else if ir.LowVal[i].Kind() == KindNull &&
+			ir.HighVal[i].Kind() == KindNull {
+			// [a, b) => (b, a]
+			ir.LowVal[i].SetKind(KindMaxValue)
+			ir.HighVal[i].SetKind(KindMaxValue)
+		} else {
+			// [a, b] => [b, a]
+			// and all the other values need swap also
+			ir.LowVal[i], ir.HighVal[i] = ir.HighVal[i], ir.LowVal[i]
+		}
+	}
+	// swap exclude flag
+	ir.LowExclude, ir.HighExclude = ir.HighExclude, ir.LowExclude
+	return ir
+}
+

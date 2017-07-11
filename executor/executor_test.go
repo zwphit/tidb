@@ -774,18 +774,19 @@ func (s *testSuite) TestDescIndexOrderBy(c *C) {
 
 	// Create desc index on non-empty table.
 	tk.MustExec("create table if not exists desc_index_table (a int, b int)")
-	tk.MustExec("insert into desc_index_table values (1, 1), (2, 2)")
-	tk.MustExec("create index desc_index on desc_index_table (a, b desc)")
+	tk.MustExec("insert into desc_index_table values (1, 1), (2, 2), (3, 3), (4, 4)")
+	tk.MustExec("create unique index desc_index on desc_index_table (a, b desc)")
 	r = tk.MustQuery("select a, b from desc_index_table order by b desc")
-	r.Check(testkit.Rows("2 2", "1 1"))
+	r.Check(testkit.Rows("4 4", "3 3","2 2", "1 1"))
 	r = tk.MustQuery("select a, b from desc_index_table order by b")
+	r.Check(testkit.Rows("1 1", "2 2", "3 3", "4 4"))
+	r = tk.MustQuery("select a, b from desc_index_table where a >= 1 and b <= 2 order by b")
 	r.Check(testkit.Rows("1 1", "2 2"))
-
 	// Some ddl test here.
 	tk.MustExec("drop index desc_index on desc_index_table")
 	tk.MustExec("alter table desc_index_table add index desc_index (a, b desc)")
 	r = tk.MustQuery("select a, b from desc_index_table order by b desc")
-	r.Check(testkit.Rows("2 2", "1 1"))
+	r.Check(testkit.Rows("4 4", "3 3", "2 2", "1 1"))
 	tk.MustExec("drop table desc_index_table")
 
 	// Create multi-column in different types on desc index of non-empty table.

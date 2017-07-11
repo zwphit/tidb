@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	"time"
 
+	"github.com/ngaut/log"
 	"github.com/juju/errors"
 	"github.com/pingcap/tidb/mysql"
 	"github.com/pingcap/tidb/util/types"
@@ -36,7 +37,7 @@ const (
 	varintFlag       byte = 8
 	uvarintFlag      byte = 9
 	jsonFlag         byte = 10
-	maxFlag          byte = 127
+	maxFlag          byte = 126
 	descDecode       byte = 128
 )
 
@@ -93,7 +94,9 @@ func encodeDatum(b []byte, val types.Datum, comparable bool, desc bool) ([]byte,
 	}
 
 	if desc {
+		log.Infof("[yusp] before desc encode %b", b)
 		b = ascEncodeToDescEncode(b)
+		log.Infof("[yusp] after desc encode %b", b)
 	}
 	return b, nil
 }
@@ -170,9 +173,9 @@ func ascEncodeToDescEncode(b []byte) []byte {
 		for i := range b {
 			if i == 0 {
 				asc = append(asc, b[0]|descDecode)
-				continue
+			} else {
+				asc = append(asc, ^b[i])
 			}
-			asc = append(asc, ^b[i])
 		}
 		return asc
 	}
@@ -187,9 +190,9 @@ func descEncodeToAscEncode(b []byte) []byte {
 		for i := range b {
 			if i == 0 {
 				desc = append(desc, b[0]^descDecode)
-				continue
+			} else {
+				desc = append(desc, ^b[i])
 			}
-			desc = append(desc, ^b[i])
 		}
 		return desc
 	}
@@ -319,10 +322,7 @@ func peek(b []byte) (length int, err error) {
 	if len(b) < 1 {
 		return 0, errors.New("invalid encoded key")
 	}
-	descEncoded := b[0]&descDecode == descDecode
-	if descEncoded {
-		b = descEncodeToAscEncode(b)
-	}
+	b = descEncodeToAscEncode(b)
 	flag := b[0]
 	length++
 	b = b[1:]
@@ -351,11 +351,6 @@ func peek(b []byte) (length int, err error) {
 		return 0, errors.Trace(err)
 	}
 	length += l
-	if descEncoded {
-		for i := range b {
-			b[i] = ^b[i]
-		}
-	}
 	return
 }
 
