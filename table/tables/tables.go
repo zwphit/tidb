@@ -207,6 +207,12 @@ func (t *Table) FirstKey() kv.Key {
 
 // UpdateRecord implements table.Table UpdateRecord interface.
 func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, touched []bool) error {
+	if len(oldData) != len(t.Cols()) {
+		log.Errorf("fffffffffffffuckkkkkkk update record old")
+	}
+	if len(newData) != len(t.Cols()) {
+		log.Errorf("fffffffffffffuckkkkkkk update record new")
+	}
 	txn := ctx.Txn()
 	bs := kv.NewBufferStore(txn)
 
@@ -297,6 +303,9 @@ func (t *Table) rebuildIndices(rm kv.RetrieverMutator, h int64, touched []bool, 
 
 // AddRecord implements table.Table AddRecord interface.
 func (t *Table) AddRecord(ctx context.Context, r []types.Datum) (recordID int64, err error) {
+	if len(r) != len(t.Cols()) {
+		log.Errorf("fffffffffffffuckkkkkkk add record")
+	}
 	var hasRecordID bool
 	for _, col := range t.Cols() {
 		if col.IsPKHandleColumn(t.meta) {

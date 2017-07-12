@@ -251,7 +251,7 @@ func (s *testColumnChangeSuite) checkAddWriteOnly(d *ddl, ctx context.Context, d
 	if err != nil {
 		return errors.Trace(err)
 	}
-	err = writeOnlyTable.UpdateRecord(ctx, h, types.MakeDatums(1, 2), types.MakeDatums(2, 2), touchedMap(writeOnlyTable))
+	err = writeOnlyTable.UpdateRecord(ctx, h, types.MakeDatums(1, 2), types.MakeDatums(2, 2), touchedSlice(writeOnlyTable))
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -278,10 +278,10 @@ func (s *testColumnChangeSuite) checkAddWriteOnly(d *ddl, ctx context.Context, d
 	return errors.Trace(err)
 }
 
-func touchedMap(t table.Table) map[int]bool {
-	touched := make(map[int]bool)
-	for _, col := range t.Cols() {
-		touched[col.Offset] = true
+func touchedSlice(t table.Table) []bool {
+	touched := make([]bool, 0, len(t.WritableCols()))
+	for range t.WritableCols() {
+		touched = append(touched, true)
 	}
 	return touched
 }
@@ -301,15 +301,15 @@ func (s *testColumnChangeSuite) checkAddPublic(d *ddl, ctx context.Context, writ
 		return errors.Trace(err)
 	}
 	// writeOnlyTable update t set c1 = 3 where c1 = 4
-	oldRow, err := writeOnlyTable.RowWithCols(ctx, h, writeOnlyTable.WritableCols())
+	oldRow, err := writeOnlyTable.RowWithCols(ctx, h, writeOnlyTable.Cols())
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if len(oldRow) != 3 {
+	if len(oldRow) != 2 {
 		return errors.Errorf("%v", oldRow)
 	}
-	newRow := types.MakeDatums(3, 4, oldRow[2].GetValue())
-	err = writeOnlyTable.UpdateRecord(ctx, h, oldRow, newRow, touchedMap(writeOnlyTable))
+	newRow := types.MakeDatums(3, 4)
+	err = writeOnlyTable.UpdateRecord(ctx, h, oldRow, newRow, touchedSlice(writeOnlyTable))
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -318,7 +318,7 @@ func (s *testColumnChangeSuite) checkAddPublic(d *ddl, ctx context.Context, writ
 		return errors.Trace(err)
 	}
 	// publicTable select * from t, make sure the new c3 value 4 is not overwritten to default value 3.
-	err = checkResult(ctx, publicTable, publicTable.WritableCols(), testutil.RowsWithSep(" ", "2 3 3", "3 4 4"))
+	err = checkResult(ctx, publicTable, publicTable.Cols(), testutil.RowsWithSep(" ", "2 3 3", "3 4 4"))
 	if err != nil {
 		return errors.Trace(err)
 	}
