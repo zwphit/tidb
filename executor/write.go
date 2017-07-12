@@ -200,7 +200,7 @@ func (e *DeleteExec) deleteMultiTables() error {
 				tblRowMap[entry.Tbl] = make(map[int64][]types.Datum)
 			}
 			offset := getTableOffset(e.SelectExec.Schema(), entry)
-			data := joinedRow.Data[offset : offset+len(entry.Tbl.WritableCols())]
+			data := joinedRow.Data[offset : offset+len(entry.Tbl.Cols())]
 			tblRowMap[entry.Tbl][entry.Handle] = data
 		}
 	}

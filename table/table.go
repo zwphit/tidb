@@ -81,6 +81,12 @@ type Table interface {
 	// Indices returns the indices of the table.
 	Indices() []Index
 
+	// WritableIndices() returns write-only and public indices of the table.
+	WritableIndices() []Index
+
+	// DeletableIndices() returns delete-only, write-only and public indices of the table.
+	DeletableIndices() []Index
+
 	// RecordPrefix returns the record key prefix.
 	RecordPrefix() kv.Key
 

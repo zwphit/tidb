@@ -136,6 +136,16 @@ func (t *BoundedTable) Indices() []table.Index {
 	return nil
 }
 
+// WritableIndices implements table.Table WritableIndices interface.
+func (t *BoundedTable) WritableIndices() []table.Index {
+	return nil
+}
+
+// DeletableIndices implements table.Table DeletableIndices interface.
+func (t *BoundedTable) DeletableIndices() []table.Index {
+	return nil
+}
+
 // Meta implements table.Table Meta interface.
 func (t *BoundedTable) Meta() *model.TableInfo {
 	return t.meta

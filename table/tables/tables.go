@@ -123,6 +123,29 @@ func (t *Table) Indices() []table.Index {
 	return t.indices
 }
 
+// WritableIndices implements table.Table WritableIndices interface.
+func (t *Table) WritableIndices() []table.Index {
+	writable := make([]table.Index, 0, len(t.indices))
+	for _, index := range t.indices {
+		s := index.Meta().State
+		if s != model.StateNone && s != model.StateDeleteOnly && s != model.StateDeleteReorganization {
+			writable = append(writable, index)
+		}
+	}
+	return writable
+}
+
+// DeletableIndices implements table.Table DeletableIndices interface.
+func (t *Table) DeletableIndices() []table.Index {
+	deletable := make([]table.Index, 0, len(t.indices))
+	for _, index := range t.indices {
+		if index.Meta().State != model.StateNone {
+			deletable = append(deletable, index)
+		}
+	}
+	return deletable
+}
+
 // Meta implements table.Table Meta interface.
 func (t *Table) Meta() *model.TableInfo {
 	return t.meta
@@ -205,7 +228,8 @@ func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []ty
 
 	for _, col := range t.WritableCols() {
 		var value types.Datum
-		if col.State != model.StatePublic && newData[col.Offset].IsNull() {
+		if col.State != model.StatePublic {
+			// if col is in write only or write reorganization state, we must add it with its default value.
 			value, err = table.GetColDefaultValue(ctx, col.ToInfo())
 			if err != nil {
 				return errors.Trace(err)
@@ -242,7 +266,7 @@ func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []ty
 }
 
 func (t *Table) rebuildIndices(rm kv.RetrieverMutator, h int64, touched []bool, oldData []types.Datum, newData []types.Datum) error {
-	for _, idx := range t.Indices() {
+	for _, idx := range t.WritableIndices() {
 		idxTouched := false
 		for _, ic := range idx.Meta().Columns {
 			if touched[ic.Offset] {
@@ -309,7 +333,7 @@ func (t *Table) AddRecord(ctx context.Context, r []types.Datum) (recordID int64,
 
 	for _, col := range t.WritableCols() {
 		var value types.Datum
-		if col.State == model.StateWriteOnly || col.State == model.StateWriteReorganization {
+		if col.State != model.StatePublic {
 			// if col is in write only or write reorganization state, we must add it with its default value.
 			value, err = table.GetColDefaultValue(ctx, col.ToInfo())
 			if err != nil {
@@ -384,11 +408,7 @@ func (t *Table) addIndices(ctx context.Context, recordID int64, r []types.Datum,
 		txn.DelOption(kv.PresumeKeyNotExistsError)
 	}
 
-	for _, v := range t.indices {
-		if v == nil || v.Meta().State == model.StateDeleteOnly || v.Meta().State == model.StateDeleteReorganization {
-			// if index is in delete only or delete reorganization state, we can't add it.
-			continue
-		}
+	for _, v := range t.WritableIndices() {
 		colVals, err2 := v.FetchValues(r)
 		if err2 != nil {
 			return 0, errors.Trace(err2)
@@ -478,13 +498,16 @@ func (t *Table) RemoveRecord(ctx context.Context, h int64, r []types.Datum) erro
 	if err != nil {
 		return errors.Trace(err)
 	}
-
 	err = t.removeRowIndices(ctx, h, r)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	if shouldWriteBinlog(ctx) {
-		err = t.addDeleteBinlog(ctx, r)
+		colIDs := make([]int64, 0, len(t.Cols()))
+		for _, col := range t.Cols() {
+			colIDs = append(colIDs, col.ID)
+		}
+		err = t.addDeleteBinlog(ctx, r, colIDs)
 	}
 	return errors.Trace(err)
 }
@@ -521,18 +544,12 @@ func (t *Table) addUpdateBinlog(ctx context.Context, oldRow, newRow []types.Datu
 	return nil
 }
 
-func (t *Table) addDeleteBinlog(ctx context.Context, r []types.Datum) error {
-	mutation := t.getMutation(ctx)
-	var data []byte
-	var err error
-	colIDs := make([]int64, len(t.Cols()))
-	for i, col := range t.Cols() {
-		colIDs[i] = col.ID
-	}
-	data, err = tablecodec.EncodeRow(r, colIDs, ctx.GetSessionVars().GetTimeZone())
+func (t *Table) addDeleteBinlog(ctx context.Context, r []types.Datum, colIDs []int64) error {
+	data, err := tablecodec.EncodeRow(r, colIDs, ctx.GetSessionVars().GetTimeZone())
 	if err != nil {
 		return errors.Trace(err)
 	}
+	mutation := t.getMutation(ctx)
 	mutation.DeletedRows = append(mutation.DeletedRows, data)
 	mutation.Sequence = append(mutation.Sequence, binlog.MutationType_DeleteRow)
 	return nil
@@ -549,7 +566,7 @@ func (t *Table) removeRowData(ctx context.Context, h int64) error {
 
 // removeRowIndices removes all the indices of a row.
 func (t *Table) removeRowIndices(ctx context.Context, h int64, rec []types.Datum) error {
-	for _, v := range t.indices {
+	for _, v := range t.DeletableIndices() {
 		vals, err := v.FetchValues(rec)
 		if vals == nil {
 			// TODO: check this

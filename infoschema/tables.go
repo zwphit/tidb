@@ -1116,6 +1116,14 @@ func (it *infoschemaTable) Indices() []table.Index {
 	return nil
 }
 
+func (it *infoschemaTable) WritableIndices() []table.Index {
+	return nil
+}
+
+func (it *infoschemaTable) DeletableIndices() []table.Index {
+	return nil
+}
+
 func (it *infoschemaTable) RecordPrefix() kv.Key {
 	return nil
 }

@@ -122,6 +122,16 @@ func (t *MemoryTable) Indices() []table.Index {
 	return nil
 }
 
+// WritableIndices implements table.Table WritableIndices interface.
+func (t *MemoryTable) WritableIndices() []table.Index {
+	return nil
+}
+
+// DeletableIndices implements table.Table DeletableIndices interface.
+func (t *MemoryTable) DeletableIndices() []table.Index {
+	return nil
+}
+
 // Meta implements table.Table Meta interface.
 func (t *MemoryTable) Meta() *model.TableInfo {
 	return t.meta
