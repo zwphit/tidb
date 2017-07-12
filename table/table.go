@@ -102,8 +102,8 @@ type Table interface {
 	// AddRecord inserts a row which should contain only public columns.
 	AddRecord(ctx context.Context, r []types.Datum) (recordID int64, err error)
 
-	// UpdateRecord updates a row which should contain only public columns.
-	UpdateRecord(ctx context.Context, h int64, currData []types.Datum, newData []types.Datum, touched []bool) error
+	// UpdateRecord updates a row which should contain only writable columns.
+	UpdateRecord(ctx context.Context, h int64, currData, newData []types.Datum, touched []bool) error
 
 	// RemoveRecord removes a row in the table.
 	RemoveRecord(ctx context.Context, h int64, r []types.Datum) error

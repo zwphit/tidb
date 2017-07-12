@@ -207,10 +207,10 @@ func (t *Table) FirstKey() kv.Key {
 
 // UpdateRecord implements table.Table UpdateRecord interface.
 func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, touched []bool) error {
-	if len(oldData) != len(t.Cols()) {
+	if len(oldData) != len(t.WritableCols()) {
 		log.Errorf("fffffffffffffuckkkkkkk update record old")
 	}
-	if len(newData) != len(t.Cols()) {
+	if len(newData) != len(t.WritableCols()) {
 		log.Errorf("fffffffffffffuckkkkkkk update record new")
 	}
 	txn := ctx.Txn()
@@ -235,10 +235,18 @@ func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []ty
 	for _, col := range t.WritableCols() {
 		var value types.Datum
 		if col.State != model.StatePublic {
-			// if col is in write only or write reorganization state, we must add it with its default value.
+			// if col is in write only or write reorganization state
+			// and the value is not default, we should use default value.
 			value, err = table.GetColDefaultValue(ctx, col.ToInfo())
 			if err != nil {
 				return errors.Trace(err)
+			}
+			cmp, err := oldData[col.Offset].CompareDatum(ctx.GetSessionVars().StmtCtx, value)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			if cmp != 0 {
+				value = oldData[col.Offset]
 			}
 		} else {
 			value = newData[col.Offset]

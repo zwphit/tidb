@@ -264,6 +264,11 @@ type DataSource struct {
 
 	LimitCount *int64
 
+	// inUpdate indicates the plan is in update or not.
+	// It's used for deciding which columns should be
+	// fetched in executor and how to sort them.
+	inUpdate bool
+
 	// pushedDownConds are the conditions that will be pushed down to coprocessor.
 	pushedDownConds []expression.Expression
 
