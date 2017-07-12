@@ -25,7 +25,6 @@ import (
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/statistics"
-	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/util/types"
 )
 
@@ -1089,9 +1088,7 @@ func (b *planBuilder) buildDataSource(tn *ast.TableName) LogicalPlan {
 	} else {
 		statisticTable = handle.GetTableStats(tn.TableInfo.ID)
 	}
-	if b.err != nil {
-		return nil
-	}
+
 	schemaName := tn.Schema
 	if schemaName.L == "" {
 		schemaName = model.NewCIStr(b.ctx.GetSessionVars().CurrentDB)
@@ -1108,20 +1105,14 @@ func (b *planBuilder) buildDataSource(tn *ast.TableName) LogicalPlan {
 		tableInfo:      tableInfo,
 		statisticTable: statisticTable,
 		DBName:         schemaName,
-		Columns:        make([]*model.ColumnInfo, 0, len(tableInfo.Columns)),
+		Columns:        make([]*model.ColumnInfo, 0, len(tbl.Cols())),
 	}.init(b.allocator, b.ctx)
 
 	b.visitInfo = appendVisitInfo(b.visitInfo, mysql.SelectPriv, schemaName.L, tableInfo.Name.L, "")
 
-	schema := expression.NewSchema(make([]*expression.Column, 0, len(tableInfo.Columns))...)
-	var columns []*table.Column
-	if b.inUpdateStmt {
-		columns = tbl.WritableCols()
-	} else {
-		columns = tbl.Cols()
-	}
-	for i, col := range columns {
-		p.Columns = append(p.Columns, col.ColumnInfo)
+	schema := expression.NewSchema(make([]*expression.Column, 0, len(tbl.Cols()))...)
+	for i, col := range tbl.Cols() {
+		p.Columns = append(p.Columns, col.ToInfo())
 		schema.Append(&expression.Column{
 			FromID:   p.id,
 			ColName:  col.Name,

@@ -38,23 +38,22 @@ var (
 	_ Executor = &LoadData{}
 )
 
-func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, assignFlag []bool, t table.Table, onDuplicateUpdate bool) (bool, error) {
-	cols := t.WritableCols()
-	touched := make(map[int]bool, len(cols))
-	assignExists := false
-	sc := ctx.GetSessionVars().StmtCtx
-	var newHandle types.Datum
-	for i, hasSetExpr := range assignFlag {
-		if !hasSetExpr {
-			if onDuplicateUpdate {
-				newData[i] = oldData[i]
-			}
-			continue
+// 1. fill values into on-update-now fields;
+// 2. rebase auto increment id if the field is changed;
+// 3. cast changed fields with respective columns;
+// 4. calculate it updates the record really or not;
+// 5. check not-null constraints.
+func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, touched []bool, t table.Table, onDup bool) (bool, error) {
+	var sc = ctx.GetSessionVars().StmtCtx
+	var changed = false
+	var handleChanged = false
+	for i, col := range t.Cols() {
+		v, err := table.CastValue(ctx, newData[i], col.ToInfo())
+		if err != nil {
+			return false, errors.Trace(err)
 		}
-		col := cols[i]
-		if col.IsPKHandleColumn(t.Meta()) {
-			newHandle = newData[i]
-		}
+		newData[i] = v
+
 		if mysql.HasAutoIncrementFlag(col.Flag) {
 			if newData[i].IsNull() {
 				return false, errors.Errorf("Column '%v' cannot be null", col.Name.O)
@@ -65,41 +64,41 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 			}
 			t.RebaseAutoID(val, true)
 		}
-		casted, err := table.CastValue(ctx, newData[i], col.ToInfo())
+		cmp, err := newData[i].CompareDatum(sc, oldData[i])
 		if err != nil {
 			return false, errors.Trace(err)
 		}
-		newData[i] = casted
-		touched[i] = true
-		assignExists = true
+		if cmp != 0 {
+			changed = true
+			touched[i] = true
+			if col.IsPKHandleColumn(t.Meta()) {
+				handleChanged = true
+			}
+		} else {
+			touched[i] = false
+		}
+	}
+	for i, col := range t.Cols() {
+		if !touched[i] {
+			if mysql.HasOnUpdateNowFlag(col.Flag) {
+				v, err := expression.GetTimeValue(ctx, expression.CurrentTimestamp, col.Tp, col.Decimal)
+				if err != nil {
+					return false, errors.Trace(err)
+				}
+				newData[i] = v
+				touched[i] = true
+			} else {
+				continue
+			}
+		}
 	}
 
-	// If no assign list for this table, no need to update.
-	if !assignExists {
-		return false, nil
-	}
-
-	if err := table.CheckNotNull(cols, newData); err != nil {
+	err := table.CheckNotNull(t.Cols(), newData)
+	if err != nil {
 		return false, errors.Trace(err)
 	}
 
-	// If row is not changed, we should do nothing.
-	rowChanged := false
-	for i := range oldData {
-		if !touched[i] {
-			continue
-		}
-
-		n, err := newData[i].CompareDatum(sc, oldData[i])
-		if err != nil {
-			return false, errors.Trace(err)
-		}
-		if n != 0 {
-			rowChanged = true
-			break
-		}
-	}
-	if !rowChanged {
+	if !changed {
 		// See https://dev.mysql.com/doc/refman/5.7/en/mysql-real-connect.html  CLIENT_FOUND_ROWS
 		if ctx.GetSessionVars().ClientCapability&mysql.ClientFoundRows > 0 {
 			sc.AddAffectedRows(1)
@@ -107,8 +106,7 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 		return false, nil
 	}
 
-	var err error
-	if !newHandle.IsNull() {
+	if handleChanged {
 		err = t.RemoveRecord(ctx, h, oldData)
 		if err != nil {
 			return false, errors.Trace(err)
@@ -121,17 +119,18 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 	if err != nil {
 		return false, errors.Trace(err)
 	}
+
 	dirtyDB := getDirtyDB(ctx)
 	tid := t.Meta().ID
 	dirtyDB.deleteRow(tid, h)
 	dirtyDB.addRow(tid, h, newData)
 
-	// Record affected rows.
-	if !onDuplicateUpdate {
-		sc.AddAffectedRows(1)
+	if onDup {
+		ctx.GetSessionVars().StmtCtx.AddAffectedRows(2)
 	} else {
-		sc.AddAffectedRows(2)
+		ctx.GetSessionVars().StmtCtx.AddAffectedRows(1)
 	}
+
 	ctx.GetSessionVars().TxnCtx.UpdateDeltaForTable(t.Meta().ID, 0, 1)
 	return true, nil
 }
@@ -1146,7 +1145,7 @@ func (e *UpdateExec) Next() (*Row, error) {
 			e.updatedRowKeys[tbl] = make(map[int64]struct{})
 		}
 		offset := getTableOffset(e.SelectExec.Schema(), entry)
-		end := offset + len(tbl.WritableCols())
+		end := offset + len(tbl.Cols())
 		handle := entry.Handle
 		oldData := row.Data[offset:end]
 		newTableData := newData[offset:end]
