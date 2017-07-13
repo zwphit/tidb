@@ -506,8 +506,10 @@ func (e *XSelectIndexExec) nextForSingleRead() (*Row, error) {
 func decodeRawValues(values []types.Datum, schema *expression.Schema, loc *time.Location) error {
 	var err error
 	for i := 0; i < schema.Len(); i++ {
+		log.Errorf("column: %s, values[%d] type: %d", schema.Columns[i].ColName.O, i, values[i].Kind())
 		if values[i].Kind() == types.KindRaw {
 			values[i], err = tablecodec.DecodeColumnValue(values[i].GetRaw(), schema.Columns[i].RetType, loc)
+			log.Errorf("column: %s, values[%d] type: %d, %v", schema.Columns[i].ColName.O, i, values[i].Kind(), values[i].GetValue())
 			if err != nil {
 				return errors.Trace(err)
 			}
