@@ -679,11 +679,6 @@ func (e *InsertExec) Next() (*Row, error) {
 				continue
 			}
 			if len(e.OnDuplicate) > 0 {
-				// Here we must fetch first, and then update.
-				row, err := e.Table.RowWithCols(e.ctx, h, e.Table.WritableCols())
-				if err != nil {
-					return nil, errors.Trace(err)
-				}
 				if err = e.onDuplicateUpdate(row, h, e.OnDuplicate); err != nil {
 					return nil, errors.Trace(err)
 				}
@@ -979,12 +974,13 @@ func (e *InsertValues) adjustAutoIncrementDatum(row []types.Datum, i int, c *tab
 // onDuplicateUpdate updates the duplicate row.
 // TODO: Report rows affected and last insert id.
 func (e *InsertExec) onDuplicateUpdate(row []types.Datum, h int64, cols []*expression.Assignment) error {
-	data, err := e.Table.Row(e.ctx, h)
+	// See http://dev.mysql.com/doc/refman/5.7/en/miscellaneous-functions.html#function_values
+	e.ctx.GetSessionVars().CurrInsertValues = row
+
+	data, err := e.Table.RowWithCols(e.ctx, h, e.Table.WritableCols())
 	if err != nil {
 		return errors.Trace(err)
 	}
-	// See http://dev.mysql.com/doc/refman/5.7/en/miscellaneous-functions.html#function_values
-	e.ctx.GetSessionVars().CurrInsertValues = row
 
 	// evaluate assignment
 	assignFlag := make([]bool, len(e.Table.WritableCols()))
