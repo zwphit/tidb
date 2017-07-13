@@ -20,9 +20,11 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/juju/errors"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/pd/pd-client"
 	"github.com/pingcap/tidb"
@@ -31,6 +33,7 @@ import (
 	"github.com/pingcap/tidb/model"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/store/tikv"
+	"github.com/pingcap/tidb/store/tikv/tikvrpc"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	goctx "golang.org/x/net/context"
@@ -40,6 +43,7 @@ const (
 	pDBName    = "db"
 	pTableName = "table"
 	pRegionID  = "regionID"
+	pRecordID  = "recordID"
 )
 
 const (
@@ -160,6 +164,7 @@ type regionHandlerTool struct {
 	bo          *tikv.Backoffer
 	infoSchema  infoschema.InfoSchema
 	regionCache *tikv.RegionCache
+	store       kvStore
 }
 
 func (s *Server) newRegionHandler(pdClient pd.Client) RegionHandler {
@@ -305,6 +310,10 @@ func (rh RegionHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	rh.writeData(w, regionDetail)
 }
 
+type kvStore interface {
+	SendReq(bo *tikv.Backoffer, req *tikvrpc.Request, regionID tikv.RegionVerID, timeout time.Duration) (*tikvrpc.Response, error)
+}
+
 // prepare checks and prepares for region request. It returns
 // regionHandlerTool on success while return an err on any
 // error happens.
@@ -318,7 +327,8 @@ func (rh *RegionHandler) prepare() (tool *regionHandlerTool, err error) {
 	// create regionCache.
 	regionCache := tikv.NewRegionCache(rh.pdClient)
 	var session tidb.Session
-	session, err = tidb.CreateSession(rh.server.driver.(*TiDBDriver).store)
+	store := rh.server.driver.(*TiDBDriver).store
+	session, err = tidb.CreateSession(store)
 	if err != nil {
 		err = errors.Trace(err)
 		return
@@ -332,6 +342,7 @@ func (rh *RegionHandler) prepare() (tool *regionHandlerTool, err error) {
 		regionCache: regionCache,
 		bo:          backOffer,
 		infoSchema:  infoSchema,
+		store:       store.(kvStore),
 	}
 	return
 }
@@ -479,4 +490,66 @@ func (ir RegionFrameRange) firstTableID() int64 {
 
 func (ir RegionFrameRange) lastTableID() int64 {
 	return ir.last.TableID
+}
+
+// MvccTxnHandler is the handler for txn debugger
+type MvccTxnHandler struct {
+	RegionHandler
+}
+
+func (s *Server) newMvccTxnHandler(pdClient pd.Client) MvccTxnHandler {
+	return MvccTxnHandler{
+		s.newRegionHandler(pdClient),
+	}
+}
+
+// ServeHTTP handles request of list a table's regions.
+func (rh MvccTxnHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// parse params
+	params := mux.Vars(req)
+	dbName := params[pDBName]
+	tableName := params[pTableName]
+
+	recordID, err := strconv.ParseInt(params[pRecordID], 0, 64)
+	if err != nil {
+		rh.writeError(w, err)
+		return
+	}
+
+	// check and prepare tools
+	tool, err := rh.prepare()
+	if err != nil {
+		rh.writeError(w, err)
+		return
+	}
+
+	// get table's schema.
+	table, err := tool.infoSchema.TableByName(model.NewCIStr(dbName), model.NewCIStr(tableName))
+	if err != nil {
+		rh.writeError(w, err)
+		return
+	}
+	tableID := table.Meta().ID
+	encodeKey := tablecodec.EncodeRowKeyWithHandle(tableID, recordID)
+	// TODO
+	keyLocation, err := tool.regionCache.LocateKey(tool.bo, encodeKey)
+	if err != nil {
+		rh.writeError(w, err)
+		return
+	}
+
+	tikvReq := &tikvrpc.Request{
+		Type:     tikvrpc.CmdMvccGetByKey,
+		Priority: kvrpcpb.CommandPri_Normal,
+		MvccGetByKey: &kvrpcpb.MvccGetByKeyRequest{
+			Key: encodeKey,
+		},
+	}
+
+	kvResp, err := tool.store.SendReq(tool.bo, tikvReq, keyLocation.Region, time.Minute)
+	if err != nil {
+		rh.writeError(w, err)
+		return
+	}
+	rh.writeData(w, kvResp.MvccGetByKey)
 }

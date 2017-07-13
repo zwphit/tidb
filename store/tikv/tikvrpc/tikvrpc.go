@@ -42,26 +42,31 @@ const (
 	CmdRawDelete
 
 	CmdCop CmdType = 512 + iota
+
+	CmdMvccGetByKey CmdType = 1024 + iota
+	CmdMvccGetByStartTs
 )
 
 // Request wraps all kv/coprocessor requests.
 type Request struct {
-	Type          CmdType
-	Priority      kvrpcpb.CommandPri
-	Get           *kvrpcpb.GetRequest
-	Scan          *kvrpcpb.ScanRequest
-	Prewrite      *kvrpcpb.PrewriteRequest
-	Commit        *kvrpcpb.CommitRequest
-	Cleanup       *kvrpcpb.CleanupRequest
-	BatchGet      *kvrpcpb.BatchGetRequest
-	BatchRollback *kvrpcpb.BatchRollbackRequest
-	ScanLock      *kvrpcpb.ScanLockRequest
-	ResolveLock   *kvrpcpb.ResolveLockRequest
-	GC            *kvrpcpb.GCRequest
-	RawGet        *kvrpcpb.RawGetRequest
-	RawPut        *kvrpcpb.RawPutRequest
-	RawDelete     *kvrpcpb.RawDeleteRequest
-	Cop           *coprocessor.Request
+	Type             CmdType
+	Priority         kvrpcpb.CommandPri
+	Get              *kvrpcpb.GetRequest
+	Scan             *kvrpcpb.ScanRequest
+	Prewrite         *kvrpcpb.PrewriteRequest
+	Commit           *kvrpcpb.CommitRequest
+	Cleanup          *kvrpcpb.CleanupRequest
+	BatchGet         *kvrpcpb.BatchGetRequest
+	BatchRollback    *kvrpcpb.BatchRollbackRequest
+	ScanLock         *kvrpcpb.ScanLockRequest
+	ResolveLock      *kvrpcpb.ResolveLockRequest
+	GC               *kvrpcpb.GCRequest
+	RawGet           *kvrpcpb.RawGetRequest
+	RawPut           *kvrpcpb.RawPutRequest
+	RawDelete        *kvrpcpb.RawDeleteRequest
+	Cop              *coprocessor.Request
+	MvccGetByKey     *kvrpcpb.MvccGetByKeyRequest
+	MvccGetByStartTs *kvrpcpb.MvccGetByStartTsRequest
 }
 
 // GetContext returns the rpc context for the underlying concrete request.
@@ -96,6 +101,10 @@ func (req *Request) GetContext() (*kvrpcpb.Context, error) {
 		c = req.RawDelete.GetContext()
 	case CmdCop:
 		c = req.Cop.GetContext()
+	case CmdMvccGetByKey:
+		c = req.MvccGetByKey.GetContext()
+	case CmdMvccGetByStartTs:
+		c = req.MvccGetByStartTs.GetContext()
 	default:
 		return nil, fmt.Errorf("invalid request type %v", req.Type)
 	}
@@ -119,6 +128,7 @@ type Response struct {
 	RawPut        *kvrpcpb.RawPutResponse
 	RawDelete     *kvrpcpb.RawDeleteResponse
 	Cop           *coprocessor.Response
+	MvccGetByKey  *kvrpcpb.MvccGetByKeyResponse
 }
 
 // SetContext set the Context field for the given req to the specified ctx.

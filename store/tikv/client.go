@@ -285,6 +285,13 @@ func (c *rpcClient) callRPC(ctx goctx.Context, client tikvpb.TikvClient, req *ti
 		}
 		resp.Cop = r
 		return resp, nil
+	case tikvrpc.CmdMvccGetByKey:
+		r, err := client.MvccGetByKey(ctx, req.MvccGetByKey)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		resp.MvccGetByKey = r
+		return resp, nil
 	default:
 		return nil, errors.Errorf("invalid request type: %v", req.Type)
 	}

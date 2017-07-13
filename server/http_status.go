@@ -70,6 +70,7 @@ func (s *Server) startHTTPServer(pdClient pd.Client) {
 	// HTTP path for regions
 	router.Handle("/tables/{db}/{table}/regions", s.newTableRegionsHandler(pdClient))
 	router.Handle("/regions/{regionID}", s.newRegionHandler(pdClient))
+	router.Handle("/mvcc/key/{db}/{table}/{recordID}", s.newMvccTxnHandler(pdClient))
 
 	addr := s.cfg.StatusAddr
 	if len(addr) == 0 {

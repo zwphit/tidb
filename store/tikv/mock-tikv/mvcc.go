@@ -495,6 +495,52 @@ func (s *MvccStore) RawDelete(key []byte) {
 	delete(s.rawkv, string(key))
 }
 
+// MvccGetByKey gets mvcc info for the key
+func (s MvccStore) MvccGetByKey(key []byte) *kvrpcpb.MvccInfo {
+	s.RLock()
+	defer s.RUnlock()
+
+	resp := s.tree.Get(newEntry(NewMvccKey(key)))
+	if resp == nil {
+		return nil
+	}
+	entry := resp.(*mvccEntry)
+
+	info := &kvrpcpb.MvccInfo{}
+	if entry.lock != nil {
+		info.Lock = &kvrpcpb.LockInfo{
+			Key:         entry.key,
+			PrimaryLock: entry.lock.primary,
+			LockVersion: entry.lock.startTS,
+			LockTtl:     entry.lock.ttl,
+		}
+	}
+
+	info.Writes = make([]*kvrpcpb.WriteInfo, len(entry.values), len(entry.values))
+	info.Values = make([]*kvrpcpb.ValueInfo, len(entry.values), len(entry.values))
+
+	for id, item := range entry.values {
+		tp := kvrpcpb.Op_Put
+		switch item.valueType {
+		case typeDelete:
+			tp = kvrpcpb.Op_Del
+		case typeRollback:
+			tp = kvrpcpb.Op_Rollback
+		}
+		info.Writes[id] = &kvrpcpb.WriteInfo{
+			StartTs:  item.startTS,
+			Type:     tp,
+			CommitTs: item.commitTS,
+		}
+
+		info.Values[id] = &kvrpcpb.ValueInfo{
+			Value: item.value,
+			Ts:    item.startTS,
+		}
+	}
+	return info
+}
+
 // MvccKey is the encoded key type.
 // On TiKV, keys are encoded before they are saved into storage engine.
 type MvccKey []byte
