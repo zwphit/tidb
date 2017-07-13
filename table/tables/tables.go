@@ -156,15 +156,17 @@ func (t *Table) Cols() []*table.Column {
 	if len(t.publicColumns) > 0 {
 		return t.publicColumns
 	}
-
-	t.publicColumns = make([]*table.Column, 0, len(t.Columns))
+	publicColumns := make([]*table.Column, len(t.Columns))
+	maxOffset := -1
 	for _, col := range t.Columns {
 		if col.State == model.StatePublic {
-			t.publicColumns = append(t.publicColumns, col)
+			publicColumns[col.Offset] = col
+			if maxOffset < col.Offset {
+				maxOffset = col.Offset
+			}
 		}
 	}
-
-	return t.publicColumns
+	return publicColumns[0 : maxOffset+1]
 }
 
 // WritableCols implements table WritableCols interface.
@@ -172,17 +174,17 @@ func (t *Table) WritableCols() []*table.Column {
 	if len(t.writableColumns) > 0 {
 		return t.writableColumns
 	}
-
-	t.writableColumns = make([]*table.Column, 0, len(t.Columns))
+	writableColumns := make([]*table.Column, len(t.Columns))
+	maxOffset := -1
 	for _, col := range t.Columns {
-		if col.State == model.StateDeleteOnly || col.State == model.StateDeleteReorganization {
-			continue
+		if col.State != model.StateDeleteOnly && col.State != model.StateDeleteReorganization {
+			writableColumns[col.Offset] = col
+			if maxOffset < col.Offset {
+				maxOffset = col.Offset
+			}
 		}
-
-		t.writableColumns = append(t.writableColumns, col)
 	}
-
-	return t.writableColumns
+	return writableColumns[0 : maxOffset+1]
 }
 
 // RecordPrefix implements table.Table RecordPrefix interface.
@@ -207,12 +209,6 @@ func (t *Table) FirstKey() kv.Key {
 
 // UpdateRecord implements table.Table UpdateRecord interface.
 func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, touched []bool) error {
-	if len(oldData) != len(t.WritableCols()) {
-		log.Errorf("fffffffffffffuckkkkkkk update record old")
-	}
-	if len(newData) != len(t.WritableCols()) {
-		log.Errorf("fffffffffffffuckkkkkkk update record new")
-	}
 	txn := ctx.Txn()
 	bs := kv.NewBufferStore(txn)
 
@@ -242,6 +238,7 @@ func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []ty
 				return errors.Trace(err)
 			}
 			cmp, err := oldData[col.Offset].CompareDatum(ctx.GetSessionVars().StmtCtx, value)
+			log.Errorf("column: (%s,%d), old value: %v, default: %v", col.Name.O, col.Offset, oldData[col.Offset].GetValue(), value.GetValue())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -280,30 +277,31 @@ func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []ty
 }
 
 func (t *Table) rebuildIndices(rm kv.RetrieverMutator, h int64, touched []bool, oldData []types.Datum, newData []types.Datum) error {
-	for _, idx := range t.WritableIndices() {
-		idxTouched := false
+	for _, idx := range t.DeletableIndices() {
 		for _, ic := range idx.Meta().Columns {
 			if touched[ic.Offset] {
-				idxTouched = true
+				oldVs, err := idx.FetchValues(oldData)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				if t.removeRowIndex(rm, h, oldVs, idx); err != nil {
+					return errors.Trace(err)
+				}
 				break
 			}
 		}
-		if !idxTouched {
-			continue
-		}
-		oldVs, err := idx.FetchValues(oldData)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if t.removeRowIndex(rm, h, oldVs, idx); err != nil {
-			return errors.Trace(err)
-		}
-		newVs, err := idx.FetchValues(newData)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if err := t.buildIndexForRow(rm, h, newVs, idx); err != nil {
-			return errors.Trace(err)
+	}
+	for _, idx := range t.WritableIndices() {
+		for _, ic := range idx.Meta().Columns {
+			if touched[ic.Offset] {
+				newVs, err := idx.FetchValues(newData)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				if err := t.buildIndexForRow(rm, h, newVs, idx); err != nil {
+					return errors.Trace(err)
+				}
+			}
 		}
 	}
 	return nil
@@ -311,9 +309,6 @@ func (t *Table) rebuildIndices(rm kv.RetrieverMutator, h int64, touched []bool, 
 
 // AddRecord implements table.Table AddRecord interface.
 func (t *Table) AddRecord(ctx context.Context, r []types.Datum) (recordID int64, err error) {
-	if len(r) != len(t.Cols()) {
-		log.Errorf("fffffffffffffuckkkkkkk add record")
-	}
 	var hasRecordID bool
 	for _, col := range t.Cols() {
 		if col.IsPKHandleColumn(t.meta) {
@@ -362,6 +357,7 @@ func (t *Table) AddRecord(ctx context.Context, r []types.Datum) (recordID int64,
 		if !t.CanSkip(col, value) {
 			colIDs = append(colIDs, col.ID)
 			row = append(row, value)
+			log.Errorf("column (%s,%d) write value %v", col.Name.O, col.Offset, value.GetValue())
 		}
 	}
 
@@ -405,7 +401,7 @@ func (t *Table) genIndexKeyStr(colVals []types.Datum) (string, error) {
 	return strings.Join(strVals, "-"), nil
 }
 
-// addIndices adds data into indices.
+// addIndices adds data into indices. If any key is duplicated, returns the original handle.
 func (t *Table) addIndices(ctx context.Context, recordID int64, r []types.Datum, bs *kv.BufferStore) (int64, error) {
 	txn := ctx.Txn()
 	// Clean up lazy check error environment
@@ -595,7 +591,6 @@ func (t *Table) removeRowIndices(ctx context.Context, h int64, rec []types.Datum
 				// or already deleted the index, so skip ErrNotExist error.
 				continue
 			}
-
 			return errors.Trace(err)
 		}
 	}
@@ -612,11 +607,6 @@ func (t *Table) removeRowIndex(rm kv.RetrieverMutator, h int64, vals []types.Dat
 
 // buildIndexForRow implements table.Table BuildIndexForRow interface.
 func (t *Table) buildIndexForRow(rm kv.RetrieverMutator, h int64, vals []types.Datum, idx table.Index) error {
-	if idx.Meta().State == model.StateDeleteOnly || idx.Meta().State == model.StateDeleteReorganization {
-		// If the index is in delete only or write reorganization state, we can not add index.
-		return nil
-	}
-
 	if _, err := idx.Create(rm, vals, h); err != nil {
 		return errors.Trace(err)
 	}

@@ -47,6 +47,12 @@ func updateRecord(ctx context.Context, h int64, oldData, newData []types.Datum, 
 	var sc = ctx.GetSessionVars().StmtCtx
 	var changed = false
 	var handleChanged = false
+	oldS := ""
+	for i, d := range oldData {
+		c := t.WritableCols()[i]
+		oldS += fmt.Sprintf("(%s,%d,%v),", c.Name.O, c.Offset, d.GetValue())
+	}
+	log.Errorf("old row: %s\n", oldS)
 	for i, col := range t.Cols() {
 		v, err := table.CastValue(ctx, newData[i], col.ToInfo())
 		if err != nil {
@@ -631,13 +637,6 @@ func (e *InsertExec) Next() (*Row, error) {
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	txn := e.ctx.Txn()
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
 
 	var rows [][]types.Datum
 	if e.SelectExec != nil {
@@ -652,17 +651,15 @@ func (e *InsertExec) Next() (*Row, error) {
 	// If tidb_batch_insert is ON and not in a transaction, we could use BatchInsert mode.
 	batchInsert := e.ctx.GetSessionVars().BatchInsert && !e.ctx.GetSessionVars().InTxn()
 	rowCount := 0
-
 	for _, row := range rows {
 		if batchInsert && rowCount >= BatchInsertSize {
-			err = e.ctx.NewTxn()
-			if err != nil {
+			if err := e.ctx.NewTxn(); err != nil {
 				// We should return a special error for batch insert.
 				return nil, ErrBatchInsertFail.Gen("BatchInsert failed with error: %v", err)
 			}
-			txn = e.ctx.Txn()
 			rowCount = 0
 		}
+		txn := e.ctx.Txn()
 		if len(e.OnDuplicate) == 0 && !e.Ignore {
 			txn.SetOption(kv.PresumeKeyNotExists, nil)
 		}
@@ -682,6 +679,11 @@ func (e *InsertExec) Next() (*Row, error) {
 				continue
 			}
 			if len(e.OnDuplicate) > 0 {
+				// Here we must fetch first, and then update.
+				row, err := e.Table.RowWithCols(e.ctx, h, e.Table.WritableCols())
+				if err != nil {
+					return nil, errors.Trace(err)
+				}
 				if err = e.onDuplicateUpdate(row, h, e.OnDuplicate); err != nil {
 					return nil, errors.Trace(err)
 				}
@@ -1149,7 +1151,7 @@ func (e *UpdateExec) Next() (*Row, error) {
 			e.updatedRowKeys[tbl] = make(map[int64]struct{})
 		}
 		offset := getTableOffset(e.SelectExec.Schema(), entry)
-		end := offset + len(tbl.Cols())
+		end := offset + len(tbl.WritableCols()) // Here must use writable columns.
 		handle := entry.Handle
 		oldData := row.Data[offset:end]
 		newTableData := newData[offset:end]
