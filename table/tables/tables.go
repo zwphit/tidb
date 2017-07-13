@@ -238,7 +238,6 @@ func (t *Table) UpdateRecord(ctx context.Context, h int64, oldData, newData []ty
 				return errors.Trace(err)
 			}
 			cmp, err := oldData[col.Offset].CompareDatum(ctx.GetSessionVars().StmtCtx, value)
-			log.Errorf("column: (%s,%d), old value: %v, default: %v", col.Name.O, col.Offset, oldData[col.Offset].GetValue(), value.GetValue())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -357,7 +356,6 @@ func (t *Table) AddRecord(ctx context.Context, r []types.Datum) (recordID int64,
 		if !t.CanSkip(col, value) {
 			colIDs = append(colIDs, col.ID)
 			row = append(row, value)
-			log.Errorf("column (%s,%d) write value %v", col.Name.O, col.Offset, value.GetValue())
 		}
 	}
 

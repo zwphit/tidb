@@ -987,7 +987,7 @@ func (e *InsertExec) onDuplicateUpdate(row []types.Datum, h int64, cols []*expre
 	e.ctx.GetSessionVars().CurrInsertValues = row
 
 	// evaluate assignment
-	assignFlag := make([]bool, len(e.Table.Cols()))
+	assignFlag := make([]bool, len(e.Table.WritableCols()))
 	newData := make([]types.Datum, len(data))
 	copy(newData, data)
 	for _, col := range cols {
