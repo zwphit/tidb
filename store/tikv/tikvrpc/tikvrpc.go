@@ -163,6 +163,8 @@ func SetContext(req *Request, ctx *kvrpcpb.Context) error {
 		req.RawDelete.Context = ctx
 	case CmdCop:
 		req.Cop.Context = ctx
+	case CmdMvccGetByKey:
+		req.MvccGetByKey.Context = ctx
 	default:
 		return fmt.Errorf("invalid request type %v", req.Type)
 	}
@@ -269,6 +271,8 @@ func (resp *Response) GetRegionError() (*errorpb.Error, error) {
 		e = resp.RawDelete.GetRegionError()
 	case CmdCop:
 		e = resp.Cop.GetRegionError()
+	case CmdMvccGetByKey:
+		e = resp.MvccGetByKey.GetRegionError()
 	default:
 		return nil, fmt.Errorf("invalid response type %v", resp.Type)
 	}
