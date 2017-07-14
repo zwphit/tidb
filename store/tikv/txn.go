@@ -157,6 +157,9 @@ func (txn *tikvTxn) onePhaseCommit() error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	if commiter == nil {
+		return nil
+	}
 	err = commiter.execute()
 	if err != nil {
 		commiter.writeBinlog()
