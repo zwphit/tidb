@@ -311,6 +311,7 @@ func (rh RegionHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 type kvStore interface {
+	LocateKey(bo *tikv.Backoffer, key []byte) (*tikv.KeyLocation, error)
 	SendReq(bo *tikv.Backoffer, req *tikvrpc.Request, regionID tikv.RegionVerID, timeout time.Duration) (*tikvrpc.Response, error)
 }
 
@@ -531,8 +532,7 @@ func (rh MvccTxnHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	tableID := table.Meta().ID
 	encodeKey := tablecodec.EncodeRowKeyWithHandle(tableID, recordID)
-	// TODO
-	keyLocation, err := tool.regionCache.LocateKey(tool.bo, encodeKey)
+	keyLocation, err := tool.store.LocateKey(tool.bo, encodeKey)
 	if err != nil {
 		rh.writeError(w, err)
 		return
@@ -545,7 +545,6 @@ func (rh MvccTxnHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			Key: encodeKey,
 		},
 	}
-
 	kvResp, err := tool.store.SendReq(tool.bo, tikvReq, keyLocation.Region, time.Minute)
 	if err != nil {
 		rh.writeError(w, err)
