@@ -17,7 +17,6 @@ import (
 	"encoding/binary"
 	"time"
 
-	"github.com/ngaut/log"
 	"github.com/juju/errors"
 	"github.com/pingcap/tidb/mysql"
 	"github.com/pingcap/tidb/util/types"
@@ -94,9 +93,7 @@ func encodeDatum(b []byte, val types.Datum, comparable bool, desc bool) ([]byte,
 	}
 
 	if desc {
-		log.Infof("[yusp] before desc encode %b", b)
 		b = ascEncodeToDescEncode(b)
-		log.Infof("[yusp] after desc encode %b", b)
 	}
 	return b, nil
 }

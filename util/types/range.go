@@ -223,7 +223,7 @@ func formatDatum(d Datum) string {
 	return fmt.Sprintf("%v", d.GetValue())
 }
 
-// ReverseRange reverse range to opposite order, e.g.
+// ReverseRange reverses range to the opposite order, e.g.
 // (a, b] => [b, a)
 // (-inf, b] => [b, +inf)
 func (ir *IndexRange) ReverseRange() *IndexRange {
@@ -233,7 +233,7 @@ func (ir *IndexRange) ReverseRange() *IndexRange {
 			// (-inf, a] => [a, +inf)
 			ir.LowVal[i], ir.HighVal[i] = ir.HighVal[i], ir.LowVal[i]
 			ir.HighVal[i].SetKind(KindMaxValue)
-		} else if (ir.LowVal[i].Kind() != KindNull ||
+		} else if (ir.LowVal[i].Kind() != KindNull &&
 			ir.LowVal[i].Kind() != KindMaxValue) &&
 			ir.HighVal[i].Kind() == KindMaxValue {
 			// (a, +inf) => (-inf, a)
@@ -242,7 +242,7 @@ func (ir *IndexRange) ReverseRange() *IndexRange {
 			ir.LowVal[i].SetKind(KindMinNotNull)
 		} else if ir.LowVal[i].Kind() == KindNull &&
 			ir.HighVal[i].Kind() == KindMaxValue {
-			// (a, b) => (b, a)
+			// (a, b) => (b, a), or (-inf, +inf) => (-inf, +inf)
 			// nothing to do
 		} else if ir.LowVal[i].Kind() == KindMaxValue &&
 			ir.HighVal[i].Kind() == KindMaxValue {
@@ -264,4 +264,3 @@ func (ir *IndexRange) ReverseRange() *IndexRange {
 	ir.LowExclude, ir.HighExclude = ir.HighExclude, ir.LowExclude
 	return ir
 }
-

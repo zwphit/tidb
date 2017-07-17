@@ -835,21 +835,3 @@ func (s *testCodecSuite) TestSetRawValues(c *C) {
 		c.Assert(encoded, BytesEquals, rawVal.GetBytes())
 	}
 }
-
-func (s *testCodecSuite) TestAscToDescEncode(c *C) {
-	b := []byte{0x7F, 0xFF}
-	b = ascEncodeToDescEncode(b)
-	expect := []byte{0x80, 0x00}
-	c.Assert(expect, BytesEquals, b)
-
-	// Don't reverse has desc flag byte
-	b = []byte{0x8F, 0xFF}
-	b = ascEncodeToDescEncode(b)
-	expect = []byte{0x8F, 0xFF}
-	c.Assert(expect, BytesEquals, b)
-
-	b = []byte{0x6F, 0x0F}
-	b = ascEncodeToDescEncode(b)
-	expect = []byte{0xEF, 0xF0}
-	c.Assert(expect, BytesEquals, b)
-}

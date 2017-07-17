@@ -159,30 +159,24 @@ func tableHandlesToKVRanges(tid int64, handles []int64) []kv.KeyRange {
 // indexValuesToKVRanges will convert the index datums to kv ranges.
 func indexValuesToKVRanges(tid, idxID int64, values [][]types.Datum, descIndex bool) ([]kv.KeyRange, error) {
 	krs := make([]kv.KeyRange, 0, len(values))
-	log.Infof("[yusp] here!")
-	if descIndex {
-		for _, vals := range values {
-			// TODO: We don't process the case that equal key has different types.
-			valKey, err := codec.EncodeDescKey(nil, vals...)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-			valKeyNext := []byte(kv.Key(valKey).PrefixNext())
-			rangeBeginKey := tablecodec.EncodeIndexSeekKey(tid, idxID, valKey)
-			rangeEndKey := tablecodec.EncodeIndexSeekKey(tid, idxID, valKeyNext)
-			krs = append([]kv.KeyRange{{StartKey: rangeEndKey, EndKey: rangeBeginKey}}, krs...)
+	for _, vals := range values {
+		// TODO: We don't process the case that equal key has different types.
+		var valKey []byte
+		var err error
+		if descIndex {
+			valKey, err = codec.EncodeDescKey(nil, vals...)
+		} else {
+			valKey, err = codec.EncodeKey(nil, vals...)
 		}
-	} else {
-		for _, vals := range values {
-			valKey, err := codec.EncodeKey(nil, vals...)
-			log.Infof("[yusp] asc point before prefix %b", valKey)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-			valKeyNext := []byte(kv.Key(valKey).PrefixNext())
-			log.Infof("[yusp] asc point after prefix %b", valKeyNext)
-			rangeBeginKey := tablecodec.EncodeIndexSeekKey(tid, idxID, valKey)
-			rangeEndKey := tablecodec.EncodeIndexSeekKey(tid, idxID, valKeyNext)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		valKeyNext := []byte(kv.Key(valKey).PrefixNext())
+		rangeBeginKey := tablecodec.EncodeIndexSeekKey(tid, idxID, valKey)
+		rangeEndKey := tablecodec.EncodeIndexSeekKey(tid, idxID, valKeyNext)
+		if descIndex {
+			krs = append([]kv.KeyRange{{StartKey: rangeBeginKey, EndKey: rangeEndKey}}, krs...)
+		} else {
 			krs = append(krs, kv.KeyRange{StartKey: rangeBeginKey, EndKey: rangeEndKey})
 		}
 	}
@@ -199,49 +193,41 @@ func indexRangesToKVRanges(sc *variable.StatementContext, tid, idxID int64, rang
 
 		var low, high []byte
 		if descIndex {
+			// Reverse range here.
 			ran = ran.ReverseRange()
 			low, err = codec.EncodeDescKey(nil, ran.LowVal...)
-			log.Infof("[yusp] desc low before prefix %b", low)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-			if ran.LowExclude {
-				low = []byte(kv.Key(low).PrefixNext())
-				log.Infof("[yusp] desc low after prefix %b", low)
-			}
-			high, err = codec.EncodeDescKey(nil, ran.HighVal...)
-			log.Infof("[yusp] desc high before prefix %b", high)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-			if !ran.HighExclude {
-				high = []byte(kv.Key(high).PrefixNext())
-				log.Infof("[yusp] desc high after prefix %b", high)
-			}
-			startKey := tablecodec.EncodeIndexSeekKey(tid, idxID, low)
-			endKey := tablecodec.EncodeIndexSeekKey(tid, idxID, high)
-			krs = append([]kv.KeyRange{{StartKey: startKey, EndKey: endKey}}, krs...)
 		} else {
 			low, err = codec.EncodeKey(nil, ran.LowVal...)
-			log.Infof("[yusp] asc low before prefix %b", low)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-			if ran.LowExclude {
-				low = []byte(kv.Key(low).PrefixNext())
-				log.Infof("[yusp] asc low after prefix %b", low)
-			}
+		}
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+
+		if ran.LowExclude {
+			low = []byte(kv.Key(low).PrefixNext())
+		}
+
+		if descIndex {
+			high, err = codec.EncodeDescKey(nil, ran.HighVal...)
+		} else {
 			high, err = codec.EncodeKey(nil, ran.HighVal...)
-			log.Infof("[yusp] asc high before prefix %b", high)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-			if !ran.HighExclude {
-				high = []byte(kv.Key(high).PrefixNext())
-				log.Infof("[yusp] asc high after prefix %b", high)
-			}
-			startKey := tablecodec.EncodeIndexSeekKey(tid, idxID, low)
-			endKey := tablecodec.EncodeIndexSeekKey(tid, idxID, high)
+		}
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+
+		if !ran.HighExclude {
+			high = []byte(kv.Key(high).PrefixNext())
+		}
+
+		startKey := tablecodec.EncodeIndexSeekKey(tid, idxID, low)
+		endKey := tablecodec.EncodeIndexSeekKey(tid, idxID, high)
+
+		if descIndex {
+			// The first range is the largest in descending order index,
+			// so we append it at the beginning.
+			krs = append([]kv.KeyRange{{StartKey: startKey, EndKey: endKey}}, krs...)
+		} else {
 			krs = append(krs, kv.KeyRange{StartKey: startKey, EndKey: endKey})
 		}
 	}

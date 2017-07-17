@@ -777,7 +777,7 @@ func (s *testSuite) TestDescIndexOrderBy(c *C) {
 	tk.MustExec("insert into desc_index_table values (1, 1), (2, 2), (3, 3), (4, 4)")
 	tk.MustExec("create unique index desc_index on desc_index_table (a, b desc)")
 	r = tk.MustQuery("select a, b from desc_index_table order by b desc")
-	r.Check(testkit.Rows("4 4", "3 3","2 2", "1 1"))
+	r.Check(testkit.Rows("4 4", "3 3", "2 2", "1 1"))
 	r = tk.MustQuery("select a, b from desc_index_table order by b")
 	r.Check(testkit.Rows("1 1", "2 2", "3 3", "4 4"))
 	r = tk.MustQuery("select a, b from desc_index_table where a >= 1 and b <= 2 order by b")
