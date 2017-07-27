@@ -25,10 +25,10 @@ import (
 	"github.com/juju/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/pd/pd-client"
-	"github.com/pingcap/tidb"
 	"github.com/pingcap/tidb/context"
 	"github.com/pingcap/tidb/infoschema"
 	"github.com/pingcap/tidb/model"
+	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/tablecodec"
@@ -317,8 +317,8 @@ func (rh *RegionHandler) prepare() (tool *regionHandlerTool, err error) {
 
 	// create regionCache.
 	regionCache := tikv.NewRegionCache(rh.pdClient)
-	var session tidb.Session
-	session, err = tidb.CreateSession(rh.server.driver.(*TiDBDriver).store)
+	var sess session.Session
+	sess, err = session.CreateSession(rh.server.driver.(*TiDBDriver).store)
 	if err != nil {
 		err = errors.Trace(err)
 		return
@@ -326,7 +326,7 @@ func (rh *RegionHandler) prepare() (tool *regionHandlerTool, err error) {
 
 	// init backOffer && infoSchema.
 	backOffer := tikv.NewBackoffer(500, goctx.Background())
-	infoSchema := sessionctx.GetDomain(session.(context.Context)).InfoSchema()
+	infoSchema := sessionctx.GetDomain(sess.(context.Context)).InfoSchema()
 
 	tool = &regionHandlerTool{
 		regionCache: regionCache,

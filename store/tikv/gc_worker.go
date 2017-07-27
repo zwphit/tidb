@@ -22,10 +22,10 @@ import (
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	"github.com/pingcap/tidb"
+	// "github.com/pingcap/tidb"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta"
-	"github.com/pingcap/tidb/privilege"
+	// "github.com/pingcap/tidb/privilege"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/store/tikv/tikvrpc"
 	"github.com/pingcap/tidb/util"
@@ -35,10 +35,11 @@ import (
 
 // GCWorker periodically triggers GC process on tikv server.
 type GCWorker struct {
-	uuid        string
-	desc        string
-	store       *tikvStore
-	session     tidb.Session
+	uuid  string
+	desc  string
+	store *tikvStore
+	// session     tidb.Session
+	session     sqlexec.SQLExecutor
 	gcIsRunning bool
 	lastFinish  time.Time
 	cancel      goctx.CancelFunc
@@ -109,19 +110,6 @@ func (w *GCWorker) start(ctx goctx.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			if w.session == nil {
-				if !w.storeIsBootstrapped() {
-					break
-				}
-				var err error
-				w.session, err = tidb.CreateSession(w.store)
-				if err != nil {
-					log.Warnf("[gc worker] create session err: %v", err)
-					break
-				}
-				// Disable privilege check for gc worker session.
-				privilege.BindPrivilegeManager(w.session, nil)
-			}
 
 			isLeader, err := w.checkLeader()
 			if err != nil {

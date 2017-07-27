@@ -17,10 +17,10 @@ import (
 	"fmt"
 
 	"github.com/juju/errors"
-	"github.com/pingcap/tidb"
 	"github.com/pingcap/tidb/ast"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/mysql"
+	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/util"
 	"github.com/pingcap/tidb/util/types"
 )
@@ -40,7 +40,7 @@ func NewTiDBDriver(store kv.Storage) *TiDBDriver {
 
 // TiDBContext implements QueryCtx.
 type TiDBContext struct {
-	session   tidb.Session
+	session   session.Session
 	currentDB string
 	stmts     map[int]*TiDBStatement
 }
@@ -123,7 +123,7 @@ func (ts *TiDBStatement) Close() error {
 
 // OpenCtx implements IDriver.
 func (qd *TiDBDriver) OpenCtx(connID uint64, capability uint32, collation uint8, dbname string) (QueryCtx, error) {
-	session, err := tidb.CreateSession(qd.store)
+	session, err := session.CreateSession(qd.store)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
