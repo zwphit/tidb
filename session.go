@@ -599,6 +599,8 @@ func (s *session) Execute(sql string) ([]ast.RecordSet, error) {
 	}
 	sessionExecuteParseDuration.Observe(time.Since(startTS).Seconds())
 
+	log.Info("[SQL]", sql)
+
 	var rs []ast.RecordSet
 	ph := sessionctx.GetDomain(s).PerfSchema()
 	for i, rst := range rawStmts {
