@@ -27,6 +27,7 @@ import (
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta"
 	"github.com/pingcap/tidb/model"
+	"github.com/pingcap/tidb/mysql"
 	"github.com/pingcap/tidb/perfschema"
 	"github.com/pingcap/tidb/privilege/privileges"
 	"github.com/pingcap/tidb/sessionctx/variable"
@@ -418,6 +419,16 @@ func NewDomain(store kv.Storage, ddlLease time.Duration, statsLease time.Duratio
 	ctx := goctx.Background()
 	callback := &ddlCallback{do: d}
 	d.ddl = ddl.NewDDL(ctx, d.etcdClient, d.store, d.infoHandle, callback, ddlLease)
+
+	// Attach a session to ddl for INSERT/UPDATE gc_delete_range table.
+	resource, err := d.SysSessionPool().Get()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	sqlCtx := resource.(context.Context)
+	sqlCtx.GetSessionVars().SetStatusFlag(mysql.ServerStatusAutocommit, false)
+	d.ddl.SetSQLContext(sqlCtx)
+
 	if err = d.ddl.SchemaSyncer().Init(ctx); err != nil {
 		return nil, errors.Trace(err)
 	}
