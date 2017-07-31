@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 
 	"github.com/juju/errors"
+	"github.com/ngaut/log"
 	"github.com/pingcap/tidb/context"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/tablecodec"
@@ -269,7 +270,9 @@ func (e *HashJoinExec) encodeRow(b []byte, row *Row) ([]byte, error) {
 	for _, rowKey := range row.RowKeys {
 		b = codec.EncodeVarint(b, rowKey.Handle)
 	}
+	log.Warnf("encode e %p key len %d", e, len(e.rowKeyCache))
 	if numRowKeys > 0 && e.rowKeyCache == nil {
+		log.Warnf("first record")
 		e.rowKeyCache = make([]*RowKeyEntry, len(row.RowKeys))
 		for i := 0; i < len(row.RowKeys); i++ {
 			rk := new(RowKeyEntry)
@@ -295,6 +298,7 @@ func (e *HashJoinExec) decodeRow(data []byte) (*Row, error) {
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	log.Warnf("decode e %p key len %d", e, entryLen)
 	for i := 0; i < int(entryLen); i++ {
 		entry := new(RowKeyEntry)
 		data, entry.Handle, err = codec.DecodeVarint(data)
