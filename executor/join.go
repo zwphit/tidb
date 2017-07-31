@@ -270,7 +270,7 @@ func (e *HashJoinExec) encodeRow(b []byte, row *Row) ([]byte, error) {
 	for _, rowKey := range row.RowKeys {
 		b = codec.EncodeVarint(b, rowKey.Handle)
 	}
-	log.Warnf("encode e %p key len %d", e, len(e.rowKeyCache))
+	log.Warnf("encode e %p key len %d data len %d", e, len(row.RowKeys), len(row.Data))
 	if numRowKeys > 0 && e.rowKeyCache == nil {
 		log.Warnf("first record")
 		e.rowKeyCache = make([]*RowKeyEntry, len(row.RowKeys))
